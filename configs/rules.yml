@@ -1,168 +1,217 @@
-# Data Quality Rules Configuration
-# Define validation and transformation rules
+# ===============================================================
+# healthdq-ai v2.2 — Unified Data Quality & API Federation Rules
+# Author: Agate Jarmakoviča
+# Last updated: 2025-11-06
+# ===============================================================
+# This configuration defines all rule-based data quality dimensions
+# used by the healthdq-ai multi-agent system. It also adds federation
+# support for FAIR APIs and Google Cloud Healthcare API integration.
+# ==============================================================
 
-validation_rules:
-  # Type validation rules
-  type_validation:
-    - name: "numeric_validation"
-      description: "Validate numeric columns"
-      columns: ["age", "salary", "amount"]
-      rule_type: "type_check"
-      expected_type: "numeric"
-      severity: "high"
+rules:
 
-    - name: "date_validation"
-      description: "Validate date columns"
-      columns: ["date_of_birth", "registration_date"]
-      rule_type: "type_check"
-      expected_type: "datetime"
-      severity: "high"
+  # ============================================================
+  # 1️⃣ PRECISION — Type, Format, Outlier & Range Validation
+  # ============================================================
+  precision:
 
-  # Range validation rules
-  range_validation:
-    - name: "age_range"
-      description: "Age must be between 0 and 120"
-      column: "age"
-      rule_type: "range"
-      min_value: 0
-      max_value: 120
-      severity: "critical"
+    data_type_consistency:
+      description: "Ensure each column contains consistent datatypes."
+      threshold: 0.05
+      severity: high
+      action: "Convert to consistent numeric, categorical, or datetime types."
+      enabled: true
 
-    - name: "percentage_range"
-      description: "Percentages must be between 0 and 100"
-      columns: ["completion_rate", "success_rate"]
-      rule_type: "range"
-      min_value: 0
-      max_value: 100
-      severity: "high"
+    format_standardization:
+      description: "Detect inconsistent or invalid value formats."
+      threshold: 0.10
+      severity: medium
+      pattern_examples:
+        date: "\\d{4}-\\d{2}-\\d{2}"
+        icd10: "^[A-Z]\\d{2}(\\.\\d)?$"
+        email: "^[\\w.%+-]+@[\\w.-]+\\.[A-Za-z]{2,}$"
+      action: "Apply regex validation and reformat using standard templates."
+      enabled: true
 
-  # Categorical validation rules
-  categorical_validation:
-    - name: "gender_values"
-      description: "Valid gender values"
-      column: "gender"
-      rule_type: "categorical"
-      allowed_values: ["M", "F", "Other"]
-      severity: "medium"
+    outlier_detection:
+      description: "Detect and handle extreme numerical outliers."
+      method: "IQR"          # Options: IQR, Z-score, IsolationForest
+      threshold: 0.01
+      severity: high
+      action: "Clip or winsorize outliers beyond 1.5×IQR."
+      enabled: true
 
-    - name: "status_values"
-      description: "Valid status values"
-      column: "status"
-      rule_type: "categorical"
-      allowed_values: ["active", "inactive", "pending", "archived"]
-      severity: "medium"
+    range_validation:
+      description: "Validate numeric or physiological values within logical ranges."
+      severity: critical
+      threshold: 0.0
+      domain_profiles:
+        heart_rate: [30, 220]
+        blood_pressure_systolic: [70, 250]
+        blood_pressure_diastolic: [40, 150]
+        temperature_celsius: [34.0, 42.0]
+      action: "Flag implausible values; replace using domain-specific median."
+      enabled: true
 
-  # Not null rules
-  not_null_rules:
-    - name: "required_fields"
-      description: "Fields that cannot be null"
-      columns: ["patient_id", "record_id", "name"]
-      rule_type: "not_null"
-      severity: "critical"
-
-  # Uniqueness rules
-  uniqueness_rules:
-    - name: "unique_identifiers"
-      description: "Unique identifier columns"
-      columns: ["patient_id", "record_id"]
-      rule_type: "unique"
-      severity: "critical"
-
-  # Format rules
-  format_rules:
-    - name: "email_format"
-      description: "Email must match format"
-      column: "email"
-      rule_type: "regex"
-      pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
-      severity: "high"
-
-    - name: "phone_format"
-      description: "Phone number format"
-      column: "phone"
-      rule_type: "regex"
-      pattern: "^\\+?[0-9]{10,15}$"
-      severity: "medium"
-
-transformation_rules:
-  # Missing value imputation
-  imputation:
-    - name: "impute_numeric_mean"
-      description: "Impute numeric columns with mean"
-      columns: ["age", "salary"]
-      method: "mean"
-      condition: "missing_ratio < 0.3"
-
-    - name: "impute_categorical_mode"
-      description: "Impute categorical with mode"
-      columns: ["gender", "status"]
-      method: "mode"
-      condition: "missing_ratio < 0.5"
-
-  # Outlier handling
-  outlier_handling:
-    - name: "clip_outliers"
-      description: "Clip outliers to IQR bounds"
-      columns: ["salary", "amount"]
-      method: "clip"
-      threshold: 1.5
-
-  # Standardization
-  standardization:
-    - name: "normalize_text"
-      description: "Normalize text columns"
-      columns: ["name", "address"]
-      operations:
-        - "lowercase"
-        - "strip"
-        - "remove_extra_spaces"
-
-    - name: "standardize_dates"
-      description: "Standardize date format"
-      columns: ["date_of_birth", "registration_date"]
-      format: "%Y-%m-%d"
-
-  # Deduplication
-  deduplication:
-    - name: "remove_exact_duplicates"
-      description: "Remove exact duplicate rows"
-      method: "exact"
-      keep: "first"
-
-    - name: "remove_key_duplicates"
-      description: "Remove duplicates based on key columns"
-      method: "subset"
-      columns: ["patient_id"]
-      keep: "last"
-
-business_rules:
-  # Custom business logic
-  - name: "adult_consent"
-    description: "Adults (18+) must have consent"
-    condition: "age >= 18"
-    required_fields: ["consent_date", "consent_signature"]
-    severity: "critical"
-
-  - name: "referential_integrity"
-    description: "Foreign key must exist in reference table"
-    column: "patient_id"
-    reference_table: "patients"
-    reference_column: "id"
-    severity: "critical"
-
-quality_thresholds:
+  # ============================================================
+  # 2️⃣ COMPLETENESS — Missingness, Duplicates, and Schema Checks
+  # ============================================================
   completeness:
-    minimum: 0.85  # 85% completeness required
-    target: 0.95   # 95% completeness target
 
-  accuracy:
-    minimum: 0.90
-    target: 0.98
+    missing_values:
+      description: "Detect and impute missing values contextually."
+      threshold: 0.05
+      severity: high
+      imputation_strategies:
+        numeric: median
+        categorical: mode
+        datetime: interpolate
+      action: "Impute using statistical or ML-based strategies."
+      enabled: true
 
-  consistency:
-    minimum: 0.85
-    target: 0.95
+    duplicate_records:
+      description: "Identify and remove duplicate patient or encounter records."
+      threshold: 0.0
+      severity: medium
+      subset_keys: ["patient_id", "encounter_id"]
+      action: "Drop duplicates keeping the latest timestamped entry."
+      enabled: true
 
-  overall:
-    minimum: 0.80
-    target: 0.95
+    schema_completeness:
+      description: "Ensure required clinical fields are present and populated."
+      threshold: 0.95
+      severity: critical
+      mandatory_fields:
+        patient: ["patient_id", "birth_date", "sex"]
+        encounter: ["encounter_id", "date", "provider"]
+        observation: ["observation_id", "value", "code"]
+      action: "Validate schema completeness and fill missing core attributes."
+      enabled: true
+
+  # ============================================================
+  # 3️⃣ REUSABILITY — FAIR, Naming, Metadata and Coding Standards
+  # ============================================================
+  reusability:
+
+    fair_compliance:
+      description: "Assess dataset FAIRness (Findable, Accessible, Interoperable, Reusable)."
+      threshold: 0.8
+      severity: medium
+      fair_weights:
+        findable: 0.25
+        accessible: 0.25
+        interoperable: 0.25
+        reusable: 0.25
+      action: "Generate FAIR compliance report and metadata recommendations."
+      enabled: true
+
+    descriptive_naming:
+      description: "Ensure descriptive, machine-readable column names."
+      threshold: 0.0
+      severity: low
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$"
+      min_length: 3
+      action: "Normalize to snake_case and add semantic annotations if available."
+      enabled: true
+
+    ontology_alignment:
+      description: "Map categorical codes to clinical terminologies (SNOMED-CT, LOINC, ICD-10)."
+      threshold: 0.05
+      severity: high
+      ontologies_supported:
+        - SNOMED-CT
+        - LOINC
+        - ICD-10
+      action: "Apply ontology matching and suggest standardized codes."
+      enabled: true
+
+    metadata_enrichment:
+      description: "Ensure datasets contain descriptive metadata (units, provenance, schema)."
+      threshold: 0.8
+      severity: medium
+      required_metadata: ["title", "description", "unit", "source", "license"]
+      action: "Generate or auto-complete metadata using FAIR APIs."
+      enabled: true
+
+  # ============================================================
+  # 4️⃣ FEDERATION — FAIR API + Google Cloud Healthcare API
+  # ============================================================
+  federation:
+
+    fair_data_point:
+      description: "Validate dataset metadata retrieved from the EU Health Information Portal FAIR API."
+      api_endpoint: "https://fair.healthinformationportal.eu/"
+      serialization: "application/ld+json"
+      severity: medium
+      required_fields: ["title", "description", "publisher", "theme"]
+      action: "Harvest RDF metadata, validate DCAT-AP compliance, compute FAIR score."
+      enabled: true
+
+    google_cloud_healthcare:
+      description: "Integrate and validate data from the Google Cloud Healthcare API (FHIR, HL7v2, DICOM)."
+      base_url: "https://healthcare.googleapis.com/v1/projects/"
+      severity: critical
+      services:
+        fhir:
+          validation_profile: "R4"
+          deidentify: true
+          schema_check: true
+        hl7v2:
+          enabled: true
+          schema_check: true
+        dicom:
+          enabled: true
+          validate_tags: true
+      action: "Validate schema, ensure de-identification compliance, export metadata to BigQuery."
+      enabled: true
+
+  # ============================================================
+  # 5️⃣ PRIVACY & SECURITY — De-identification & Compliance
+  # ============================================================
+  privacy:
+
+    deidentification:
+      description: "Remove or mask protected health information (PHI) from clinical datasets."
+      severity: critical
+      pii_fields:
+        - patient_name
+        - address
+        - phone_number
+        - email
+        - national_id
+      methods:
+        - hash
+        - generalize
+        - remove
+      action: "Apply Google Cloud De-identification API or local masking functions."
+      enabled: true
+
+    compliance:
+      description: "Check compliance with GDPR, HIPAA, and local data protection laws."
+      severity: critical
+      frameworks:
+        - GDPR
+        - HIPAA
+      action: "Perform automatic compliance checks and flag non-conforming fields."
+      enabled: true
+
+# ============================================================
+# 6️⃣ GLOBAL SETTINGS
+# ============================================================
+settings:
+  default_confidence_weighting:
+    precision: 0.4
+    completeness: 0.3
+    reusability: 0.2
+    federation: 0.1
+
+  feedback_learning_enabled: true
+  auto_imputation_enabled: true
+  deidentification_enabled: true
+  max_rules_per_dimension: 10
+  allow_user_rule_override: true
+
+# ============================================================
+# End of File
+# ============================================================
+
