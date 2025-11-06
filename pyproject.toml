@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "AI Agent-Based Data Quality Framework for Healthcare Data"
 readme = "README.md"
 authors = [
-    {name = "Agate Jarmakoviča", email = ""}
+    {name = "Agate Jarmakoviča"}
 ]
 license = {text = "MIT"}
 classifiers = [
