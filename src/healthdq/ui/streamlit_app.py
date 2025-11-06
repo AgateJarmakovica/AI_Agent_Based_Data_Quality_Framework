@@ -16,10 +16,12 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add project root to Python path for local imports
-project_root = Path(__file__).parent.parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# Add src directory to Python path for local imports
+# File is at: .../src/healthdq/ui/streamlit_app.py
+# We need to add: .../src/ to sys.path
+src_dir = Path(__file__).parent.parent.parent
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 # Check for healthdq package and ML dependencies
 ML_FEATURES_AVAILABLE = True
