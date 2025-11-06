@@ -275,16 +275,65 @@ class CoordinatorAgent(BaseAgent):
     def _simulate_precision_analysis(
         self, data: pd.DataFrame, columns: Optional[List[str]]
     ) -> Dict[str, Any]:
-        """Simulate precision analysis."""
+        """
+        Simulate precision/accuracy analysis using publication formula.
+
+        Publication formula: Accuracy = 1 - (Number of detected anomalies / Total records)
+
+        Uses Isolation Forest + LOF anomaly detection when available,
+        falls back to IQR method.
+        """
         issues = []
         target_columns = columns or data.columns.tolist()
+        numeric_cols = [col for col in target_columns if col in data.columns and pd.api.types.is_numeric_dtype(data[col])]
 
-        # Check for format inconsistencies
+        # Anomaly detection (Isolation Forest + LOF)
+        total_anomalies = 0
+        total_records = len(data)
+
+        if len(numeric_cols) > 0:
+            numeric_data = data[numeric_cols].dropna()
+
+            if len(numeric_data) >= 10:
+                try:
+                    from sklearn.ensemble import IsolationForest
+                    from sklearn.neighbors import LocalOutlierFactor
+
+                    # Isolation Forest
+                    iso_forest = IsolationForest(contamination=0.1, random_state=42, n_estimators=100)
+                    iso_predictions = iso_forest.fit_predict(numeric_data)
+                    iso_anomalies = (iso_predictions == -1).sum()
+
+                    # Local Outlier Factor
+                    lof = LocalOutlierFactor(n_neighbors=5, contamination=0.1)
+                    lof_predictions = lof.fit_predict(numeric_data)
+                    lof_anomalies = (lof_predictions == -1).sum()
+
+                    # Average of both methods
+                    total_anomalies = (iso_anomalies + lof_anomalies) / 2
+
+                    issues.append({
+                        "type": "anomalies_detected",
+                        "severity": "medium",
+                        "description": f"{total_anomalies:.1f} anomalies detected (Isolation Forest + LOF)",
+                        "impact_ratio": total_anomalies / len(numeric_data),
+                        "method": "Isolation Forest + LOF",
+                        "iso_anomalies": int(iso_anomalies),
+                        "lof_anomalies": int(lof_anomalies),
+                    })
+
+                except ImportError:
+                    # Fallback to IQR method
+                    total_anomalies = self._detect_anomalies_iqr(data, numeric_cols, issues)
+            else:
+                # Too few rows, use IQR
+                total_anomalies = self._detect_anomalies_iqr(data, numeric_cols, issues)
+
+        # Check for mixed types
         for col in target_columns:
             if col not in data.columns:
                 continue
 
-            # Check for mixed types
             if data[col].dtype == object:
                 unique_types = set(type(x).__name__ for x in data[col].dropna())
                 if len(unique_types) > 1:
@@ -296,40 +345,65 @@ class CoordinatorAgent(BaseAgent):
                         "impact_ratio": 1.0,
                     })
 
-            # Check for outliers in numeric columns
-            if pd.api.types.is_numeric_dtype(data[col]):
-                q1 = data[col].quantile(0.25)
-                q3 = data[col].quantile(0.75)
-                iqr = q3 - q1
-                outliers = ((data[col] < (q1 - 1.5 * iqr)) | (data[col] > (q3 + 1.5 * iqr))).sum()
-                if outliers > 0:
-                    issues.append({
-                        "column": col,
-                        "type": "outliers",
-                        "severity": "medium",
-                        "description": f"{outliers} potential outliers detected",
-                        "impact_ratio": outliers / len(data),
-                    })
-
-        # Calculate score
-        score = max(0.0, 1.0 - (len(issues) * 0.1))
+        # Publication formula: Accuracy = 1 - (anomalies / total_records)
+        accuracy_score = 1.0 - (total_anomalies / total_records) if total_records > 0 else 1.0
+        accuracy_score = max(0.0, min(1.0, accuracy_score))
 
         return {
             "dimension": "precision",
-            "score": score,
+            "score": round(accuracy_score, 4),
             "issues": issues,
+            "total_anomalies": round(float(total_anomalies), 2),
+            "total_records": total_records,
+            "formula": "Accuracy = 1 - (anomalies / total_records)",
             "suggestions": [
-                {"action": "standardize_formats", "columns": [i["column"] for i in issues if i["type"] == "mixed_types"]},
-                {"action": "handle_outliers", "columns": [i["column"] for i in issues if i["type"] == "outliers"]},
+                {"action": "handle_anomalies", "columns": numeric_cols, "method": "review_and_correct"},
+                {"action": "standardize_formats", "columns": [i["column"] for i in issues if i.get("type") == "mixed_types"]},
             ],
         }
+
+    def _detect_anomalies_iqr(self, data: pd.DataFrame, numeric_cols: List[str], issues: List[Dict[str, Any]]) -> float:
+        """Fallback anomaly detection using IQR method."""
+        total_outliers = 0
+
+        for col in numeric_cols:
+            q1 = data[col].quantile(0.25)
+            q3 = data[col].quantile(0.75)
+            iqr = q3 - q1
+            outliers = ((data[col] < (q1 - 1.5 * iqr)) | (data[col] > (q3 + 1.5 * iqr))).sum()
+
+            if outliers > 0:
+                total_outliers += outliers
+                issues.append({
+                    "column": col,
+                    "type": "outliers",
+                    "severity": "medium",
+                    "description": f"{outliers} outliers detected (IQR method)",
+                    "impact_ratio": outliers / len(data),
+                    "method": "IQR",
+                })
+
+        return float(total_outliers)
 
     def _simulate_completeness_analysis(
         self, data: pd.DataFrame, columns: Optional[List[str]]
     ) -> Dict[str, Any]:
-        """Simulate completeness analysis."""
+        """
+        Simulate completeness analysis using publication formula.
+
+        Publication formula: Completeness = 1 - (Number of missing values / Total number of values)
+
+        Per column: Completeness_col = 1 - (Missing in column / Total rows)
+
+        Publication reference: KNN Imputer (n_neighbors=5) increased data
+        completeness from 90.57% to nearly 100%.
+        """
         issues = []
         target_columns = columns or data.columns.tolist()
+
+        # Calculate total missing values across all columns
+        total_cells = len(data) * len(target_columns)
+        total_missing = 0
 
         for col in target_columns:
             if col not in data.columns:
@@ -337,9 +411,13 @@ class CoordinatorAgent(BaseAgent):
 
             missing_count = data[col].isna().sum()
             missing_ratio = missing_count / len(data)
+            total_missing += missing_count
 
             if missing_ratio > 0.05:  # More than 5% missing
                 severity = "critical" if missing_ratio > 0.5 else "high" if missing_ratio > 0.2 else "medium"
+
+                # Per-column completeness score
+                col_completeness = 1.0 - missing_ratio
 
                 issues.append({
                     "column": col,
@@ -347,21 +425,27 @@ class CoordinatorAgent(BaseAgent):
                     "severity": severity,
                     "description": f"{missing_count} missing values ({missing_ratio * 100:.1f}%)",
                     "impact_ratio": missing_ratio,
+                    "completeness": round(col_completeness, 4),
                 })
 
-        # Calculate score
-        avg_completeness = 1.0 - (sum(i["impact_ratio"] for i in issues) / max(len(target_columns), 1))
-        score = max(0.0, min(1.0, avg_completeness))
+        # Publication formula: Completeness = 1 - (total_missing / total_cells)
+        completeness_score = 1.0 - (total_missing / total_cells) if total_cells > 0 else 1.0
+        completeness_score = max(0.0, min(1.0, completeness_score))
 
         return {
             "dimension": "completeness",
-            "score": score,
+            "score": round(completeness_score, 4),
             "issues": issues,
+            "total_missing": int(total_missing),
+            "total_cells": int(total_cells),
+            "missing_percentage": round((total_missing / total_cells * 100) if total_cells > 0 else 0, 2),
+            "formula": "Completeness = 1 - (missing_values / total_values)",
             "suggestions": [
                 {
                     "action": "impute_missing",
                     "columns": [i["column"] for i in issues],
-                    "methods": ["mean", "median", "mode", "ml_prediction"],
+                    "methods": ["KNN (n=5)", "mean", "median", "mode"],
+                    "reference": "KNN Imputer with n_neighbors=5 (from publication)",
                 },
             ],
         }
@@ -369,40 +453,93 @@ class CoordinatorAgent(BaseAgent):
     def _simulate_reusability_analysis(
         self, data: pd.DataFrame, columns: Optional[List[str]]
     ) -> Dict[str, Any]:
-        """Simulate reusability analysis."""
+        """
+        Simulate reusability analysis using publication formula.
+
+        Publication formula:
+        Reusability = (Documented processes + Metadata + Version control) / 3
+
+        Simplified: Reusability = (documentation + metadata + version_control) / 3
+
+        Each component is binary (0 or 1), resulting in a score from 0.0 to 1.0.
+        """
         issues = []
 
-        # Check for standardized column names
-        for col in data.columns:
-            if not col.islower() or " " in col:
-                issues.append({
-                    "column": col,
-                    "type": "naming_convention",
-                    "severity": "low",
-                    "description": "Column name not standardized",
-                    "impact_ratio": 0.1,
-                })
+        # Component 1: Documentation (description, data dictionary)
+        has_description = "description" in data.attrs if data.attrs else False
+        has_data_dict = "data_dictionary" in data.attrs if data.attrs else False
+        documentation = 1.0 if (has_description or has_data_dict) else 0.0
 
-        # Check for documentation (metadata)
-        if "description" not in data.attrs:
+        if not (has_description or has_data_dict):
+            issues.append({
+                "type": "missing_documentation",
+                "severity": "medium",
+                "description": "Dataset lacks documentation (description or data dictionary)",
+                "impact_ratio": 0.33,
+                "component": "documentation",
+            })
+
+        # Component 2: Metadata (attrs present, meaningful content)
+        has_metadata = bool(data.attrs) and len(data.attrs) > 0
+        metadata = 1.0 if has_metadata else 0.0
+
+        if not has_metadata:
             issues.append({
                 "type": "missing_metadata",
                 "severity": "medium",
-                "description": "Dataset lacks metadata/documentation",
-                "impact_ratio": 0.2,
+                "description": "Dataset lacks metadata attributes",
+                "impact_ratio": 0.33,
+                "component": "metadata",
             })
 
-        # Calculate score
-        score = max(0.0, 1.0 - (len(issues) * 0.05))
+        # Component 3: Version Control / Reproducibility (version, source, created_at)
+        has_version = "version" in data.attrs if data.attrs else False
+        has_source = "source" in data.attrs if data.attrs else False
+        has_timestamp = "created_at" in data.attrs if data.attrs else False
+        version_control = 1.0 if (has_version or has_source or has_timestamp) else 0.0
+
+        if not (has_version or has_source or has_timestamp):
+            issues.append({
+                "type": "missing_version_control",
+                "severity": "low",
+                "description": "Dataset lacks version control info (version, source, or timestamp)",
+                "impact_ratio": 0.33,
+                "component": "version_control",
+            })
+
+        # Check for naming convention issues (bonus check)
+        naming_issues_count = 0
+        for col in data.columns:
+            if not col.islower() or " " in col:
+                naming_issues_count += 1
+
+        if naming_issues_count > 0:
+            issues.append({
+                "type": "naming_convention",
+                "severity": "low",
+                "description": f"{naming_issues_count} columns have non-standard names",
+                "impact_ratio": 0.1,
+                "component": "interoperability",
+            })
+
+        # Publication formula: Reusability = (sum of 3 components) / 3
+        reusability_score = (documentation + metadata + version_control) / 3
 
         return {
             "dimension": "reusability",
-            "score": score,
+            "score": round(reusability_score, 4),
             "issues": issues,
+            "components": {
+                "documentation": documentation,
+                "metadata": metadata,
+                "version_control": version_control,
+            },
+            "formula": "Reusability = (documentation + metadata + version_control) / 3",
             "suggestions": [
-                {"action": "normalize_column_names"},
-                {"action": "add_metadata"},
-                {"action": "add_data_dictionary"},
+                {"action": "add_metadata", "priority": "high" if metadata == 0 else "low"},
+                {"action": "add_documentation", "priority": "high" if documentation == 0 else "low"},
+                {"action": "add_version_control", "priority": "medium" if version_control == 0 else "low"},
+                {"action": "normalize_column_names", "priority": "low"},
             ],
         }
 
