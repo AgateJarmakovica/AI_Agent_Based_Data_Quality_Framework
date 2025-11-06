@@ -1,0 +1,282 @@
+# LLM Prompt Templates for healthdq-ai
+# Dynamic prompts for AI agents
+
+system_prompts:
+  coordinator:
+    role: |
+      You are a Coordinator Agent in a multi-agent data quality system.
+      Your role is to orchestrate analysis across specialized agents (Precision, Completeness, Reusability).
+
+    instructions: |
+      1. Analyze the data quality request
+      2. Delegate tasks to appropriate specialized agents
+      3. Aggregate and synthesize results
+      4. Resolve conflicts between agent recommendations
+      5. Generate comprehensive quality report
+
+    capabilities:
+      - "Task orchestration"
+      - "Result aggregation"
+      - "Conflict resolution"
+      - "Report generation"
+
+  precision:
+    role: |
+      You are a Precision Agent specializing in data accuracy and correctness.
+      Focus on identifying format inconsistencies, type errors, and precision issues.
+
+    instructions: |
+      1. Check data type consistency
+      2. Identify format violations
+      3. Detect outliers and anomalies
+      4. Validate against expected patterns
+      5. Suggest precision improvements
+
+    focus_areas:
+      - "Data type validation"
+      - "Format consistency"
+      - "Outlier detection"
+      - "Pattern matching"
+
+  completeness:
+    role: |
+      You are a Completeness Agent specializing in missing data analysis.
+      Focus on identifying missing values and suggesting imputation strategies.
+
+    instructions: |
+      1. Identify missing values across all columns
+      2. Analyze missing data patterns (MCAR, MAR, MNAR)
+      3. Recommend appropriate imputation methods
+      4. Assess impact of missing data
+      5. Prioritize columns for imputation
+
+    focus_areas:
+      - "Missing value detection"
+      - "Missing data pattern analysis"
+      - "Imputation strategy recommendation"
+      - "Impact assessment"
+
+  reusability:
+    role: |
+      You are a Reusability Agent specializing in FAIR principles and data standardization.
+      Focus on making data more findable, accessible, interoperable, and reusable.
+
+    instructions: |
+      1. Assess metadata completeness
+      2. Check naming convention compliance
+      3. Evaluate documentation quality
+      4. Verify standard format adherence
+      5. Recommend standardization improvements
+
+    focus_areas:
+      - "FAIR principles compliance"
+      - "Metadata quality"
+      - "Naming conventions"
+      - "Documentation"
+
+analysis_prompts:
+  precision_analysis:
+    template: |
+      Analyze the following data for precision issues:
+
+      Dataset: {dataset_name}
+      Columns: {columns}
+      Sample data:
+      {sample_data}
+
+      Please identify:
+      1. Data type inconsistencies
+      2. Format violations
+      3. Outliers (values beyond {outlier_threshold} IQR)
+      4. Invalid patterns
+
+      Provide structured output with:
+      - Issue type
+      - Affected columns
+      - Severity (critical/high/medium/low)
+      - Suggested fix
+      - Confidence score
+
+  completeness_analysis:
+    template: |
+      Analyze missing data in the following dataset:
+
+      Dataset: {dataset_name}
+      Total rows: {total_rows}
+      Missing data summary:
+      {missing_summary}
+
+      For each column with missing data, determine:
+      1. Missing percentage
+      2. Missing data pattern (MCAR/MAR/MNAR)
+      3. Recommended imputation method
+      4. Potential risks of imputation
+
+      Prioritize columns by:
+      - Business importance
+      - Missing percentage
+      - Imputation feasibility
+
+  reusability_analysis:
+    template: |
+      Assess the reusability of this dataset:
+
+      Dataset: {dataset_name}
+      Columns: {columns}
+      Current metadata: {metadata}
+
+      Evaluate against FAIR principles:
+      F (Findable):
+      - Has descriptive metadata?
+      - Has persistent identifiers?
+      - Has searchable documentation?
+
+      A (Accessible):
+      - Clear data format?
+      - Complete records?
+      - Access documentation?
+
+      I (Interoperable):
+      - Standard formats used?
+      - Common vocabularies?
+      - Clear schemas?
+
+      R (Reusable):
+      - Clear licensing?
+      - Detailed provenance?
+      - Quality metrics?
+
+      Provide score (0-1) for each dimension and recommendations.
+
+feedback_prompts:
+  request_human_feedback:
+    template: |
+      The system has identified the following issue:
+
+      Issue: {issue_description}
+      Affected data: {affected_data}
+      Proposed solution: {proposed_solution}
+      Confidence: {confidence_score}
+
+      Please provide feedback:
+      1. Approve/Reject the proposed solution
+      2. Suggest alternative approach (if rejected)
+      3. Add any relevant context
+      4. Rate confidence in your decision (0-1)
+
+  learn_from_feedback:
+    template: |
+      Previous feedback received:
+
+      Original issue: {original_issue}
+      System proposal: {system_proposal}
+      Human decision: {human_decision}
+      Human rationale: {human_rationale}
+
+      Extract learnings:
+      1. Was the system's analysis correct?
+      2. What factors did the human consider?
+      3. How should the system adjust its approach?
+      4. Create a rule for similar future cases
+
+collaboration_prompts:
+  request_collaboration:
+    template: |
+      Agent {sender_agent} requests collaboration:
+
+      Task: {task_description}
+      Required capabilities: {required_capabilities}
+      Data reference: {data_reference}
+      Deadline: {deadline}
+
+      Can you participate in this task?
+      If yes, provide:
+      - Your relevant capabilities
+      - Estimated time needed
+      - Any constraints or requirements
+      - Confidence in success (0-1)
+
+  conflict_resolution:
+    template: |
+      Multiple agents provided conflicting recommendations:
+
+      {conflict_summary}
+
+      Agent A ({agent_a}) recommends: {recommendation_a}
+      Reasoning: {reasoning_a}
+      Confidence: {confidence_a}
+
+      Agent B ({agent_b}) recommends: {recommendation_b}
+      Reasoning: {reasoning_b}
+      Confidence: {confidence_b}
+
+      Resolve this conflict by:
+      1. Analyzing both perspectives
+      2. Considering data context: {data_context}
+      3. Weighing confidence scores
+      4. Providing final recommendation with rationale
+
+rule_generation_prompts:
+  generate_rule:
+    template: |
+      Based on the following data patterns, generate a quality rule:
+
+      Observed pattern: {pattern_description}
+      Frequency: {pattern_frequency}
+      Data context: {data_context}
+      Similar approved rules: {similar_rules}
+
+      Generate a rule specification:
+      - Rule name
+      - Rule type (validation/transformation)
+      - Condition (when to apply)
+      - Action (what to do)
+      - Severity level
+      - Confidence score
+      - Example cases
+
+      Format as YAML-compatible structure.
+
+reporting_prompts:
+  executive_summary:
+    template: |
+      Generate an executive summary of data quality assessment:
+
+      Dataset: {dataset_name}
+      Records analyzed: {record_count}
+      Analysis date: {analysis_date}
+
+      Quality scores:
+      {quality_scores}
+
+      Key findings:
+      {key_findings}
+
+      Create a concise executive summary (200-300 words) highlighting:
+      1. Overall data quality status
+      2. Critical issues requiring immediate attention
+      3. Recommended priority actions
+      4. Expected impact of improvements
+      5. Timeline and resources needed
+
+  technical_report:
+    template: |
+      Generate detailed technical report:
+
+      {comprehensive_analysis_results}
+
+      Structure the report with:
+      1. Executive Summary
+      2. Data Profile
+      3. Quality Dimensions Analysis
+         - Completeness
+         - Accuracy
+         - Consistency
+         - Timeliness
+         - Uniqueness
+         - Validity
+      4. Issue Details (by severity)
+      5. Improvement Recommendations
+      6. Implementation Plan
+      7. Expected Outcomes
+      8. Appendices (technical details)
