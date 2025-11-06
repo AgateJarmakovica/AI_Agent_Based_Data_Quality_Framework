@@ -15,6 +15,28 @@ import pandas as pd
 import asyncio
 from pathlib import Path
 
+# Check for optional ML dependencies
+ML_FEATURES_AVAILABLE = True
+MISSING_DEPENDENCIES = []
+
+try:
+    import langchain
+except ImportError:
+    ML_FEATURES_AVAILABLE = False
+    MISSING_DEPENDENCIES.append("langchain")
+
+try:
+    import chromadb
+except ImportError:
+    ML_FEATURES_AVAILABLE = False
+    MISSING_DEPENDENCIES.append("chromadb")
+
+try:
+    import torch
+except ImportError:
+    # Torch is optional, warn but don't disable features
+    MISSING_DEPENDENCIES.append("torch")
+
 # Configure page
 st.set_page_config(
     page_title="healthdq-ai - Data Quality Framework",
@@ -38,8 +60,121 @@ if "workflow_stage" not in st.session_state:
     st.session_state.workflow_stage = "upload"
 
 
+def _simulate_analysis(data: pd.DataFrame, dimensions: list) -> dict:
+    """
+    Simulate quality analysis when ML features are not available.
+    Provides basic rule-based analysis without LLM/vector DB.
+    """
+    import numpy as np
+
+    results = {
+        "overall_score": 0.0,
+        "dimension_results": {},
+        "improvement_plan": {"actions": []},
+        "metadata": {
+            "total_issues": 0,
+            "confidence": 0.7,  # Lower confidence for simulated results
+            "mode": "simulated"
+        }
+    }
+
+    total_score = 0
+
+    # Analyze each dimension with basic rules
+    for dimension in dimensions:
+        dim_results = {
+            "score": 0.0,
+            "issues": [],
+            "suggestions": []
+        }
+
+        if dimension == "completeness":
+            # Check for missing values
+            missing_count = data.isna().sum()
+            missing_pct = (data.isna().sum() / len(data)) * 100
+
+            for col in data.columns:
+                if missing_count[col] > 0:
+                    severity = "critical" if missing_pct[col] > 50 else "high" if missing_pct[col] > 20 else "medium"
+                    dim_results["issues"].append({
+                        "type": "missing_values",
+                        "column": col,
+                        "description": f"Kolonnā '{col}' trūkst {missing_count[col]} vērtības ({missing_pct[col]:.1f}%)",
+                        "severity": severity,
+                        "count": int(missing_count[col])
+                    })
+
+                    results["improvement_plan"]["actions"].append({
+                        "column": col,
+                        "recommended_action": f"Aizpildīt trūkstošās vērtības kolonnā '{col}'",
+                        "severity": severity
+                    })
+
+            # Calculate score
+            overall_missing_pct = (data.isna().sum().sum() / (len(data) * len(data.columns))) * 100
+            dim_results["score"] = max(0, 1 - (overall_missing_pct / 100))
+
+        elif dimension == "precision":
+            # Check data types and format consistency
+            for col in data.columns:
+                if data[col].dtype == 'object':
+                    # Check for inconsistent formats
+                    unique_count = data[col].nunique()
+                    if unique_count > len(data) * 0.5:
+                        dim_results["issues"].append({
+                            "type": "format_inconsistency",
+                            "column": col,
+                            "description": f"Kolonnā '{col}' ir daudz unikālu vērtību ({unique_count}), iespējams formāta nekonsekvence",
+                            "severity": "medium"
+                        })
+
+            # Simple score based on numeric vs object columns
+            numeric_cols = len(data.select_dtypes(include=[np.number]).columns)
+            total_cols = len(data.columns)
+            dim_results["score"] = 0.7 + (numeric_cols / total_cols) * 0.3
+
+        elif dimension == "reusability":
+            # Basic FAIR principles check
+            issues_count = 0
+
+            # Check column names (should be descriptive)
+            for col in data.columns:
+                if len(col) < 2 or col.isdigit():
+                    dim_results["issues"].append({
+                        "type": "poor_naming",
+                        "column": col,
+                        "description": f"Kolonnai '{col}' ir nepietiekoši aprakstošs nosaukums",
+                        "severity": "low"
+                    })
+                    issues_count += 1
+
+            dim_results["score"] = max(0.5, 1 - (issues_count / len(data.columns)))
+
+        total_score += dim_results["score"]
+        results["dimension_results"][dimension] = dim_results
+        results["metadata"]["total_issues"] += len(dim_results["issues"])
+
+    # Calculate overall score
+    results["overall_score"] = total_score / len(dimensions) if dimensions else 0.5
+
+    return results
+
+
 def main():
     """Main application."""
+
+    # Show ML features warning if dependencies are missing
+    if not ML_FEATURES_AVAILABLE:
+        st.warning(
+            f"⚠️ **Demo režīms**: Daži ML funkcionalitāte nav pieejama. "
+            f"Trūkstošie paketes: {', '.join(MISSING_DEPENDENCIES)}. "
+            f"Lai iespējotu pilnu funkcionalitāti, instalējiet: `pip install -r requirements.txt`"
+        )
+    elif MISSING_DEPENDENCIES:
+        st.info(
+            f"ℹ️ Daži neobligātie komponenti nav instalēti: {', '.join(MISSING_DEPENDENCIES)}. "
+            f"Pamata funkcionalitāte ir pieejama."
+        )
 
     # Sidebar
     with st.sidebar:
@@ -205,19 +340,24 @@ def show_assessment_stage():
         with st.spinner("🤖 AI aģenti analizē datus..."):
             # Run analysis
             try:
-                from healthdq.agents.coordinator import CoordinatorAgent
-                from healthdq.config import get_config
+                if ML_FEATURES_AVAILABLE:
+                    # Use real AI coordinator
+                    from healthdq.agents.coordinator import CoordinatorAgent
+                    from healthdq.config import get_config
 
-                config = get_config()
-                coordinator = CoordinatorAgent(config)
+                    config = get_config()
+                    coordinator = CoordinatorAgent(config)
 
-                # Run async analysis
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                results = loop.run_until_complete(
-                    coordinator.analyze(st.session_state.data, dimensions=dimensions)
-                )
-                loop.close()
+                    # Run async analysis
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    results = loop.run_until_complete(
+                        coordinator.analyze(st.session_state.data, dimensions=dimensions)
+                    )
+                    loop.close()
+                else:
+                    # Use simulated analysis (demo mode)
+                    results = _simulate_analysis(st.session_state.data, dimensions)
 
                 st.session_state.quality_results = results
                 st.session_state.workflow_stage = "review"

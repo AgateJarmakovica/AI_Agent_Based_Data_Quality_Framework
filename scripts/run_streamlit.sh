@@ -16,9 +16,29 @@ NC='\033[0m'
 # Check if streamlit is installed
 if ! command -v streamlit &> /dev/null; then
     echo -e "${RED}❌ Streamlit not installed${NC}"
-    echo "Installing streamlit..."
-    pip install streamlit pandas pyyaml
-    echo -e "${GREEN}✅ Streamlit installed${NC}"
+    echo
+
+    # Offer choice of installation methods
+    if [ -f "requirements-streamlit.txt" ]; then
+        echo "Choose installation method:"
+        echo "  1) Streamlit UI only (fast, ~50MB) - RECOMMENDED"
+        echo "  2) Basic packages only (minimal)"
+        read -p "Enter choice [1-2] (default: 1): " -n 1 -r
+        echo
+
+        if [[ $REPLY =~ ^[2]$ ]]; then
+            echo "Installing minimal packages..."
+            pip install streamlit pandas pyyaml
+        else
+            echo "Installing Streamlit UI dependencies..."
+            pip install -r requirements-streamlit.txt
+        fi
+    else
+        echo "Installing basic packages..."
+        pip install streamlit pandas pyyaml
+    fi
+
+    echo -e "${GREEN}✅ Installation complete${NC}"
     echo
 fi
 

@@ -149,12 +149,54 @@ cd AI_Agent_Based_Data_Quality_Framework
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install package
+# Choose installation method (see below)
+```
+
+### Installation Options
+
+#### Option 1: Streamlit UI Only (Recommended for Quick Start)
+
+Fast installation with minimal dependencies for web interface testing:
+
+```bash
+pip install -r requirements-streamlit.txt
+```
+
+**Best for:**
+- Quick testing and demos
+- Limited resources (~50MB)
+- Basic data quality analysis with rule-based approach
+
+**Limitations:**
+- No AI/LLM features
+- Simulated multi-agent analysis
+
+#### Option 2: Full AI Installation
+
+Complete installation with all ML dependencies:
+
+```bash
+# Install full requirements
+pip install -r requirements.txt
+
+# Or install as package (includes all dependencies)
 pip install -e .
 
-# Or install with development dependencies
+# For development work
 pip install -e ".[dev]"
 ```
+
+**Best for:**
+- Production use
+- Full AI capabilities
+- Research and development
+
+**Requirements:**
+- ~3GB disk space
+- 4GB+ RAM recommended
+- GPU optional (for faster inference)
+
+> **Note:** The application automatically detects available dependencies. If ML libraries are missing, it runs in demo mode with basic rule-based analysis.
 
 ### Configuration
 
