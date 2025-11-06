@@ -1,0 +1,41 @@
+=====================================================================
+# requirements-dev.txt for healthdq-ai
+# ---------------------------------------------------------------------
+# Development dependencies for testing, linting, and quality assurance
+# Author: Agate Jarmakoviča
+# Date: 2025-11-06
+=====================================================================
+
+# First, install all production dependencies
+-r requirements.txt
+
+# --- Testing & quality assurance --------------------------------------
+pytest==8.1.1          # Unit testing for reproducibility validation
+pytest-cov==5.0.0      # Test coverage reporting
+pytest-asyncio==0.23.6 # Async test support
+pytest-mock==3.14.0    # Mocking framework
+
+# --- Code quality & formatting ----------------------------------------
+flake8==7.0.0          # Static code analysis (PEP8 compliance)
+black==24.3.0          # Code formatting for consistency
+mypy==1.10.0           # Static type checking
+isort==5.13.2          # Consistent import sorting
+pylint==3.1.0          # Additional code quality checks
+
+# --- Pre-commit hooks -------------------------------------------------
+pre-commit==3.7.0      # Pre-commit hook framework
+
+# --- Load testing -----------------------------------------------------
+locust==2.24.0         # Load and performance testing
+
+# --- Documentation ----------------------------------------------------
+sphinx==7.3.7          # Documentation generation
+sphinx-rtd-theme==2.0.0  # ReadTheDocs theme
+
+# --- Development utilities --------------------------------------------
+ipython==8.23.0        # Enhanced Python shell
+jupyter==1.0.0         # Jupyter notebooks for experiments
+notebook==7.1.2        # Jupyter notebook server
+
+# --- Debugging --------------------------------------------------------
+ipdb==0.13.13          # IPython debugger

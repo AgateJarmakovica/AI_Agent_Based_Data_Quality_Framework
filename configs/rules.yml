@@ -1,0 +1,168 @@
+# Data Quality Rules Configuration
+# Define validation and transformation rules
+
+validation_rules:
+  # Type validation rules
+  type_validation:
+    - name: "numeric_validation"
+      description: "Validate numeric columns"
+      columns: ["age", "salary", "amount"]
+      rule_type: "type_check"
+      expected_type: "numeric"
+      severity: "high"
+
+    - name: "date_validation"
+      description: "Validate date columns"
+      columns: ["date_of_birth", "registration_date"]
+      rule_type: "type_check"
+      expected_type: "datetime"
+      severity: "high"
+
+  # Range validation rules
+  range_validation:
+    - name: "age_range"
+      description: "Age must be between 0 and 120"
+      column: "age"
+      rule_type: "range"
+      min_value: 0
+      max_value: 120
+      severity: "critical"
+
+    - name: "percentage_range"
+      description: "Percentages must be between 0 and 100"
+      columns: ["completion_rate", "success_rate"]
+      rule_type: "range"
+      min_value: 0
+      max_value: 100
+      severity: "high"
+
+  # Categorical validation rules
+  categorical_validation:
+    - name: "gender_values"
+      description: "Valid gender values"
+      column: "gender"
+      rule_type: "categorical"
+      allowed_values: ["M", "F", "Other"]
+      severity: "medium"
+
+    - name: "status_values"
+      description: "Valid status values"
+      column: "status"
+      rule_type: "categorical"
+      allowed_values: ["active", "inactive", "pending", "archived"]
+      severity: "medium"
+
+  # Not null rules
+  not_null_rules:
+    - name: "required_fields"
+      description: "Fields that cannot be null"
+      columns: ["patient_id", "record_id", "name"]
+      rule_type: "not_null"
+      severity: "critical"
+
+  # Uniqueness rules
+  uniqueness_rules:
+    - name: "unique_identifiers"
+      description: "Unique identifier columns"
+      columns: ["patient_id", "record_id"]
+      rule_type: "unique"
+      severity: "critical"
+
+  # Format rules
+  format_rules:
+    - name: "email_format"
+      description: "Email must match format"
+      column: "email"
+      rule_type: "regex"
+      pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+      severity: "high"
+
+    - name: "phone_format"
+      description: "Phone number format"
+      column: "phone"
+      rule_type: "regex"
+      pattern: "^\\+?[0-9]{10,15}$"
+      severity: "medium"
+
+transformation_rules:
+  # Missing value imputation
+  imputation:
+    - name: "impute_numeric_mean"
+      description: "Impute numeric columns with mean"
+      columns: ["age", "salary"]
+      method: "mean"
+      condition: "missing_ratio < 0.3"
+
+    - name: "impute_categorical_mode"
+      description: "Impute categorical with mode"
+      columns: ["gender", "status"]
+      method: "mode"
+      condition: "missing_ratio < 0.5"
+
+  # Outlier handling
+  outlier_handling:
+    - name: "clip_outliers"
+      description: "Clip outliers to IQR bounds"
+      columns: ["salary", "amount"]
+      method: "clip"
+      threshold: 1.5
+
+  # Standardization
+  standardization:
+    - name: "normalize_text"
+      description: "Normalize text columns"
+      columns: ["name", "address"]
+      operations:
+        - "lowercase"
+        - "strip"
+        - "remove_extra_spaces"
+
+    - name: "standardize_dates"
+      description: "Standardize date format"
+      columns: ["date_of_birth", "registration_date"]
+      format: "%Y-%m-%d"
+
+  # Deduplication
+  deduplication:
+    - name: "remove_exact_duplicates"
+      description: "Remove exact duplicate rows"
+      method: "exact"
+      keep: "first"
+
+    - name: "remove_key_duplicates"
+      description: "Remove duplicates based on key columns"
+      method: "subset"
+      columns: ["patient_id"]
+      keep: "last"
+
+business_rules:
+  # Custom business logic
+  - name: "adult_consent"
+    description: "Adults (18+) must have consent"
+    condition: "age >= 18"
+    required_fields: ["consent_date", "consent_signature"]
+    severity: "critical"
+
+  - name: "referential_integrity"
+    description: "Foreign key must exist in reference table"
+    column: "patient_id"
+    reference_table: "patients"
+    reference_column: "id"
+    severity: "critical"
+
+quality_thresholds:
+  completeness:
+    minimum: 0.85  # 85% completeness required
+    target: 0.95   # 95% completeness target
+
+  accuracy:
+    minimum: 0.90
+    target: 0.98
+
+  consistency:
+    minimum: 0.85
+    target: 0.95
+
+  overall:
+    minimum: 0.80
+    target: 0.95

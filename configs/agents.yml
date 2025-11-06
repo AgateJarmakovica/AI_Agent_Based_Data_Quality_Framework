@@ -1,0 +1,75 @@
+# Agent Configuration for healthdq-ai
+# This file defines the multi-agent system configuration
+
+agents:
+  coordinator:
+    agent_id: "coordinator"
+    role: "Multi-agent orchestrator"
+    capabilities:
+      - "orchestration"
+      - "aggregation"
+      - "conflict_resolution"
+    enabled: true
+    priority: 1
+
+  precision:
+    agent_id: "precision_agent"
+    role: "Precision quality assessor"
+    capabilities:
+      - "precision_analysis"
+      - "format_validation"
+      - "type_checking"
+      - "outlier_detection"
+    enabled: true
+    priority: 2
+    parameters:
+      outlier_threshold: 1.5
+      format_strictness: "medium"
+
+  completeness:
+    agent_id: "completeness_agent"
+    role: "Completeness quality assessor"
+    capabilities:
+      - "completeness_analysis"
+      - "missing_value_detection"
+      - "imputation"
+    enabled: true
+    priority: 2
+    parameters:
+      missing_threshold: 0.05  # 5%
+      imputation_methods:
+        - "mean"
+        - "median"
+        - "mode"
+        - "ml_prediction"
+
+  reusability:
+    agent_id: "reusability_agent"
+    role: "Reusability quality assessor"
+    capabilities:
+      - "reusability_analysis"
+      - "standardization"
+      - "metadata_validation"
+    enabled: true
+    priority: 3
+    parameters:
+      naming_convention: "snake_case"
+      require_metadata: true
+
+communication:
+  protocol: "ACP"  # Agent Communication Protocol
+  timeout_seconds: 60
+  max_retries: 3
+  enable_broadcast: true
+  enable_collaboration: true
+
+collaboration:
+  enable: true
+  max_concurrent_tasks: 5
+  coordination_strategy: "sequential"  # sequential, parallel, adaptive
+
+memory:
+  enable: true
+  type: "vector"  # vector, sql, hybrid
+  retention_days: 30
+  max_feedback_items: 1000

@@ -1,0 +1,54 @@
+=====================================================================
+# requirements.txt for healthdq-ai (PAPILDINĀTS)
+# ---------------------------------------------------------------------
+# Project: healthdq-ai (Promocijas darba prototips)
+# Author: Agate Jarmakoviča
+# Version: 1.2.1
+# Date: 2025-11-06
+=====================================================================
+
+# --- Core dependencies ------------------------------------------------
+pandas==2.2.2          # Data handling, cleaning, and metric computation
+pyyaml==6.0.2          # Parsing YAML rules and configuration files
+streamlit==1.37.0      # Interactive HITL (Human-in-the-Loop) web UI
+
+# --- AI/ML Agent Framework --------------------------------------------
+langchain==0.2.0       # Aģentu orkestrācija
+langgraph==0.1.0       # Aģentu workflow
+pydantic==2.7.0        # Data validation un schemas
+
+# --- AI/ML dependencies -----------------------------------------------
+sentence-transformers==2.7.0   # Schema learning (semantic similarity)
+scikit-learn==1.4.2            # Machine learning (rule learning, TF-IDF)
+transformers==4.40.0           # AI imputation (LLM models)
+torch==2.3.0                   # Deep learning backend
+
+# --- Memory & Storage -------------------------------------------------
+chromadb==0.4.24       # Vector database for agent memory
+sqlalchemy==2.0.30     # Database ORM for feedback storage
+
+# --- Data Processing --------------------------------------------------
+chardet==5.2.0         # Character encoding detection (CSV loader)
+numpy==1.26.4          # Mathematical support for metric calculations
+polars==0.20.23        # High-performance data processing (optional alternative)
+pyarrow==16.0.0        # Efficient I/O operations
+
+# --- Visualization ----------------------------------------------------
+plotly==5.21.0         # Optional interactive metric visualization
+
+# --- API support ------------------------------------------------------
+fastapi==0.111.0       # REST API framework
+uvicorn==0.30.0        # ASGI server
+python-multipart==0.0.9  # File upload support
+
+# --- Configuration & Utilities ----------------------------------------
+python-dotenv==1.0.1   # Environment variable management
+watchdog==4.0.1        # Streamlit file watcher (for auto-reload)
+requests==2.31.0       # HTTP client for API calls
+aiohttp==3.9.5         # Async HTTP client
+
+# --- Healthcare specific ----------------------------------------------
+fhir.resources==7.1.0  # FHIR standard support
+
+# --- Logging & Monitoring ---------------------------------------------
+loguru==0.7.2          # Enhanced logging
