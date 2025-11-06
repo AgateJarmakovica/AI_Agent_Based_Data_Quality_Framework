@@ -410,28 +410,36 @@ def show_assessment_stage():
         with st.spinner("🤖 AI aģenti analizē datus..."):
             # Run analysis
             try:
-                if ML_FEATURES_AVAILABLE:
-                    # Use real AI coordinator
-                    from healthdq.agents.coordinator import CoordinatorAgent
-                    from healthdq.config import get_config
+                # Try to use real AI coordinator
+                from healthdq.agents.coordinator import CoordinatorAgent
+                from healthdq.config import get_config
 
-                    config = get_config()
-                    coordinator = CoordinatorAgent(config)
+                config = get_config()
+                coordinator = CoordinatorAgent(config)
 
-                    # Run async analysis
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    results = loop.run_until_complete(
-                        coordinator.analyze(st.session_state.data, dimensions=dimensions)
-                    )
-                    loop.close()
-                else:
-                    # Use simulated analysis (demo mode)
-                    results = _simulate_analysis(st.session_state.data, dimensions)
+                # Run async analysis
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                results = loop.run_until_complete(
+                    coordinator.analyze(st.session_state.data, dimensions=dimensions)
+                )
+                loop.close()
 
                 st.session_state.quality_results = results
                 st.session_state.workflow_stage = "review"
                 st.rerun()
+
+            except (ImportError, ModuleNotFoundError) as e:
+                # Fall back to simulated analysis if imports fail
+                st.info("ℹ️ Demo režīms: Izmanto vienkāršu uz noteikumiem balstītu analīzi")
+                try:
+                    results = _simulate_analysis(st.session_state.data, dimensions)
+                    st.session_state.quality_results = results
+                    st.session_state.workflow_stage = "review"
+                    st.rerun()
+                except Exception as sim_error:
+                    st.error(f"❌ Kļūda simulētajā analīzē: {str(sim_error)}")
+                    st.exception(sim_error)
 
             except Exception as e:
                 st.error(f"❌ Kļūda analīzē: {str(e)}")
@@ -556,7 +564,7 @@ def show_review_stage():
         with col2:
             if st.button("✅ Pārskatīt un Apstiprināt", type="primary", use_container_width=True):
                 # Create review session
-                if ML_FEATURES_AVAILABLE:
+                try:
                     from healthdq.hitl.review import DataReview
                     reviewer = DataReview()
                     review_session = reviewer.create_review_session(
@@ -564,8 +572,8 @@ def show_review_stage():
                         results,
                         improvement_plan
                     )
-                else:
-                    # Use simulated review session
+                except (ImportError, ModuleNotFoundError):
+                    # Use simulated review session if import fails
                     review_session = _create_simulated_review_session(
                         st.session_state.data,
                         results,
@@ -596,8 +604,23 @@ def show_approval_stage():
     Jūsu feedback palīdz sistēmai mācīties un uzlaboties!
     """)
 
+    # Try to use full approval system, fall back to demo mode if needed
+    use_demo_mode = False
+
+    try:
+        from healthdq.hitl.approval import ApprovalManager
+        # If import succeeds, check if we should use it
+        if "approval_manager" not in st.session_state:
+            st.session_state.approval_manager = ApprovalManager()
+            st.session_state.approval_request = st.session_state.approval_manager.create_approval_request(
+                review["session_id"],
+                proposed_changes
+            )
+    except (ImportError, ModuleNotFoundError):
+        use_demo_mode = True
+
     # Handle demo mode with simplified approval
-    if not ML_FEATURES_AVAILABLE:
+    if use_demo_mode:
         st.info("ℹ️ Demo režīmā: Vienkāršots apstiprināšanas process")
 
         # Initialize simple approval tracking in session state
@@ -672,16 +695,7 @@ def show_approval_stage():
 
         return
 
-    # Full ML mode with ApprovalManager
-    from healthdq.hitl.approval import ApprovalManager
-
-    if "approval_manager" not in st.session_state:
-        st.session_state.approval_manager = ApprovalManager()
-        st.session_state.approval_request = st.session_state.approval_manager.create_approval_request(
-            review["session_id"],
-            proposed_changes
-        )
-
+    # Full mode with ApprovalManager (already imported and initialized above)
     approval_manager = st.session_state.approval_manager
     approval_request = st.session_state.approval_request
 
@@ -763,57 +777,34 @@ def show_transformation_stage():
     """Stage 5: Apply approved transformations."""
     st.header("5️⃣ Datu Transformācija")
 
-    # Handle demo mode
-    if not ML_FEATURES_AVAILABLE:
-        if st.session_state.review_session is None:
-            st.warning("⚠️ Nav review sesijas.")
-            return
+    # Determine what data we have to work with
+    # Try full ML mode first, fall back to demo mode
+    use_demo_mode = False
+    approved_changes = []
 
+    if st.session_state.final_decision is not None:
+        # Full mode data available
+        final_decision = st.session_state.final_decision
+        approved_changes = final_decision["approved_changes"]
+    elif st.session_state.review_session is not None:
+        # Demo mode data available
+        use_demo_mode = True
         review = st.session_state.review_session
         proposed_changes = review["proposed_changes"]
-
-        # Get approved changes from the proposed changes
         approved_changes = [change for change in proposed_changes if change.get("approved", False)]
-
-        st.info(f"ℹ️ Demo režīms: Piemēro {len(approved_changes)} apstiprinātās izmaiņas ar vienkāršu transformāciju...")
-
-        with st.spinner("🔄 Transformē datus..."):
-            try:
-                # Use simulated transformation
-                improved_data = _apply_simulated_transformations(
-                    st.session_state.data,
-                    proposed_changes
-                )
-
-                st.session_state.improved_data = improved_data
-                st.success("✅ Transformācija pabeigta!")
-
-                st.session_state.workflow_stage = "results"
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"❌ Kļūda transformācijā: {str(e)}")
-                st.exception(e)
-
-        return
-
-    # Full ML mode
-    if st.session_state.final_decision is None:
+    else:
         st.warning("⚠️ Nav apstiprinātu izmaiņu.")
         return
-
-    final_decision = st.session_state.final_decision
-    approved_changes = final_decision["approved_changes"]
 
     st.info(f"ℹ️ Piemēro {len(approved_changes)} apstiprinātās izmaiņas...")
 
     with st.spinner("🔄 Transformē datus..."):
         try:
+            # Try to use full DataTransformer
             from healthdq.rules.transform import DataTransformer
+            from healthdq.utils.helpers import normalize_column_names
 
             transformer = DataTransformer()
-
-            # Apply transformations
             improved_data = st.session_state.data.copy()
 
             for change in approved_changes:
@@ -827,14 +818,35 @@ def show_transformation_stage():
                 elif action_type == "standardize_data_types":
                     improved_data = transformer.standardize_types(improved_data, column=target)
                 elif action_type == "normalize_column_names":
-                    from healthdq.utils.helpers import normalize_column_names
                     improved_data = normalize_column_names(improved_data)
 
             st.session_state.improved_data = improved_data
             st.success("✅ Transformācija pabeigta!")
-
             st.session_state.workflow_stage = "results"
             st.rerun()
+
+        except (ImportError, ModuleNotFoundError) as e:
+            # Fall back to simulated transformation
+            st.info("ℹ️ Demo režīms: Izmanto vienkāršu transformāciju")
+            try:
+                if use_demo_mode and st.session_state.review_session is not None:
+                    proposed_changes = st.session_state.review_session["proposed_changes"]
+                    improved_data = _apply_simulated_transformations(
+                        st.session_state.data,
+                        proposed_changes
+                    )
+                else:
+                    # Simple fallback for non-demo mode data
+                    improved_data = st.session_state.data.copy()
+
+                st.session_state.improved_data = improved_data
+                st.success("✅ Transformācija pabeigta!")
+                st.session_state.workflow_stage = "results"
+                st.rerun()
+
+            except Exception as sim_error:
+                st.error(f"❌ Kļūda simulētajā transformācijā: {str(sim_error)}")
+                st.exception(sim_error)
 
         except Exception as e:
             st.error(f"❌ Kļūda transformācijā: {str(e)}")
