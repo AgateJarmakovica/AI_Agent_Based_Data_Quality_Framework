@@ -3,11 +3,11 @@ Coordinator agent - orchestrates multi-agent data quality assessment
 Author: Agate Jarmakoviča
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 import asyncio
 
-from healthdq.agents.base_agent import BaseAgent
+from healthdq.agents.base_agent import BaseAgent, DimensionType, ParameterValue
 from healthdq.communication.message import AnalysisRequest, AnalysisResponse, create_request_message
 from healthdq.communication.router import get_router
 from healthdq.utils.logger import get_logger
@@ -37,38 +37,78 @@ class CoordinatorAgent(BaseAgent):
         )
 
         self.router = get_router()
-        self.specialized_agents: Dict[str, str] = {}
+        # Map dimension to agent_id with typed keys
+        self.specialized_agents: Dict[DimensionType, str] = {}
+        # Enable/disable real agent communication (vs simulation)
+        self.use_real_agents: bool = False
 
-    async def register_specialized_agent(self, dimension: str, agent_id: str) -> None:
+    async def register_specialized_agent(self, dimension: DimensionType, agent_id: str) -> None:
         """
-        Register a specialized agent.
+        Register a specialized agent for a quality dimension.
 
         Args:
             dimension: Quality dimension (precision, completeness, reusability)
             agent_id: Agent identifier
+
+        Raises:
+            ValueError: If dimension is invalid
         """
+        valid_dimensions = ["precision", "completeness", "reusability"]
+        if dimension not in valid_dimensions:
+            raise ValueError(f"Invalid dimension: {dimension}. Must be one of {valid_dimensions}")
+
         self.specialized_agents[dimension] = agent_id
         logger.info(f"Registered specialized agent: {dimension} -> {agent_id}")
+
+    def enable_real_agent_communication(self, enable: bool = True) -> None:
+        """
+        Enable or disable real agent communication.
+
+        Args:
+            enable: If True, use protocol.send_message() for real agent communication.
+                   If False, use simulated analysis (default for testing).
+        """
+        self.use_real_agents = enable
+        logger.info(f"Real agent communication: {'enabled' if enable else 'disabled'}")
 
     async def analyze(
         self,
         data: pd.DataFrame,
-        dimensions: List[str] = ["precision", "completeness", "reusability"],
+        dimensions: List[DimensionType] = ["precision", "completeness", "reusability"],
         columns: Optional[List[str]] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        parameters: Optional[Dict[str, ParameterValue]] = None,
     ) -> Dict[str, Any]:
         """
-        Coordinate comprehensive data quality analysis.
+        Coordinate comprehensive data quality analysis with input validation.
 
         Args:
-            data: DataFrame to analyze
+            data: DataFrame to analyze (must be non-empty)
             dimensions: Quality dimensions to assess
-            columns: Specific columns to analyze
-            parameters: Additional parameters
+            columns: Specific columns to analyze (None for all)
+            parameters: Additional parameters for analysis
 
         Returns:
-            Comprehensive analysis results
+            Comprehensive analysis results with:
+                - status: "success" or "failed"
+                - overall_score: Float 0.0-1.0
+                - dimension_results: Dict of results per dimension
+                - improvement_plan: Dict with actions and priorities
+                - metadata: Dict with analysis metadata
+
+        Raises:
+            AssertionError: If input validation fails
         """
+        # Input validation
+        assert isinstance(data, pd.DataFrame), "Data must be a pandas DataFrame"
+        assert not data.empty, "Data cannot be empty"
+        assert isinstance(dimensions, list), "Dimensions must be a list"
+        assert all(isinstance(d, str) for d in dimensions), "All dimensions must be strings"
+        assert all(d in ["precision", "completeness", "reusability"] for d in dimensions), \
+            "Invalid dimension(s). Must be: precision, completeness, or reusability"
+        if columns is not None:
+            assert isinstance(columns, list), "Columns must be a list"
+            assert all(isinstance(c, str) for c in columns), "All columns must be strings"
+
         logger.info(f"Starting coordinated analysis for dimensions: {dimensions}")
         self.task_count += 1
 
@@ -134,31 +174,102 @@ class CoordinatorAgent(BaseAgent):
     async def _analyze_dimension(
         self,
         agent_id: str,
-        dimension: str,
+        dimension: DimensionType,
         data: pd.DataFrame,
         columns: Optional[List[str]],
-        parameters: Optional[Dict[str, Any]],
+        parameters: Optional[Dict[str, ParameterValue]],
     ) -> Dict[str, Any]:
-        """Analyze a single dimension using specialized agent."""
+        """
+        Analyze a single dimension using specialized agent.
+
+        Supports both real agent communication and simulated analysis.
+
+        Args:
+            agent_id: ID of the specialized agent
+            dimension: Quality dimension to analyze
+            data: DataFrame to analyze
+            columns: Optional list of columns
+            parameters: Optional parameters
+
+        Returns:
+            Analysis results dictionary
+        """
         try:
-            # In a real implementation, we would send message to the agent
-            # For now, we'll simulate the analysis
             logger.info(f"Analyzing {dimension} dimension with agent: {agent_id}")
 
-            # Simulate analysis based on dimension
-            if dimension == "precision":
-                result = self._simulate_precision_analysis(data, columns)
-            elif dimension == "completeness":
-                result = self._simulate_completeness_analysis(data, columns)
-            elif dimension == "reusability":
-                result = self._simulate_reusability_analysis(data, columns)
+            if self.use_real_agents:
+                # Real agent communication via protocol
+                result = await self._communicate_with_agent(agent_id, dimension, data, columns, parameters)
             else:
-                result = {"dimension": dimension, "score": 0.5, "issues": [], "suggestions": []}
+                # Simulated analysis (for testing or when agents not available)
+                if dimension == "precision":
+                    result = self._simulate_precision_analysis(data, columns)
+                elif dimension == "completeness":
+                    result = self._simulate_completeness_analysis(data, columns)
+                elif dimension == "reusability":
+                    result = self._simulate_reusability_analysis(data, columns)
+                else:
+                    result = {"dimension": dimension, "score": 0.5, "issues": [], "suggestions": []}
 
             return result
 
         except Exception as e:
-            logger.error(f"Analysis failed for {dimension}: {str(e)}")
+            logger.exception(f"Analysis failed for {dimension}: {e}")
+            return {"dimension": dimension, "error": str(e), "score": 0.0}
+
+    async def _communicate_with_agent(
+        self,
+        agent_id: str,
+        dimension: DimensionType,
+        data: pd.DataFrame,
+        columns: Optional[List[str]],
+        parameters: Optional[Dict[str, ParameterValue]],
+    ) -> Dict[str, Any]:
+        """
+        Communicate with a real specialized agent via protocol.
+
+        Args:
+            agent_id: ID of the specialized agent
+            dimension: Quality dimension
+            data: DataFrame to analyze
+            columns: Optional columns
+            parameters: Optional parameters
+
+        Returns:
+            Analysis results from the agent
+        """
+        try:
+            # Generate data reference
+            data_hash = generate_hash(data)
+
+            # Create analysis request message
+            message = create_request_message(
+                sender=self.agent_id,
+                receiver=agent_id,
+                action="analyze",
+                payload={
+                    "data_hash": data_hash,
+                    "dimension": dimension,
+                    "columns": columns,
+                    "parameters": parameters or {},
+                },
+            )
+
+            # Send message and wait for response
+            response = await self.protocol.request_response(message, timeout=30.0)
+
+            if response and response.get("status") == "success":
+                return response.get("payload", {})
+            else:
+                error_msg = response.get("error", "Unknown error") if response else "No response"
+                logger.error(f"Agent {agent_id} failed: {error_msg}")
+                return {"dimension": dimension, "error": error_msg, "score": 0.0}
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout waiting for agent {agent_id}")
+            return {"dimension": dimension, "error": "Timeout", "score": 0.0}
+        except Exception as e:
+            logger.exception(f"Error communicating with agent {agent_id}: {e}")
             return {"dimension": dimension, "error": str(e), "score": 0.0}
 
     def _simulate_precision_analysis(
@@ -296,12 +407,38 @@ class CoordinatorAgent(BaseAgent):
         }
 
     def _aggregate_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Aggregate results from multiple agents."""
-        aggregated = {}
+        """
+        Aggregate results from multiple agents with merge support.
+
+        If multiple results exist for the same dimension, they are merged
+        using the merge_results helper function.
+
+        Args:
+            results: List of analysis results from agents
+
+        Returns:
+            Aggregated results dictionary keyed by dimension
+        """
+        aggregated: Dict[DimensionType, Dict[str, Any]] = {}
 
         for result in results:
             dimension = result.get("dimension")
-            if dimension:
+            if not dimension:
+                logger.warning("Result missing dimension field, skipping")
+                continue
+
+            if dimension in aggregated:
+                # Merge with existing result for this dimension
+                try:
+                    existing = aggregated[dimension]
+                    merged = merge_results(existing, result)
+                    aggregated[dimension] = merged
+                    logger.info(f"Merged multiple results for dimension: {dimension}")
+                except Exception as e:
+                    logger.exception(f"Error merging results for {dimension}: {e}")
+                    # Keep the first result if merge fails
+            else:
+                # First result for this dimension
                 aggregated[dimension] = result
 
         return aggregated
