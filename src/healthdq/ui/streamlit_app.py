@@ -18,7 +18,7 @@ from pathlib import Path
 # Configure page
 st.set_page_config(
     page_title="healthdq-ai - Data Quality Framework",
-    page_icon="🏥",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -43,7 +43,7 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        st.title("🏥 healthdq-ai")
+        st.title(" healthdq-ai")
         st.markdown("**AI Agent-Based Data Quality Framework**")
         st.markdown("---")
 
@@ -51,12 +51,12 @@ def main():
         st.subheader("📋 Workflow")
 
         stages = {
-            "upload": "1️⃣ Augšupielāde",
-            "assessment": "2️⃣ Novērtējums",
-            "review": "3️⃣ Pārskatīšana",
-            "approval": "4️⃣ Apstiprināšana",
-            "transformation": "5️⃣ Transformācija",
-            "results": "6️⃣ Rezultāti",
+            "upload": "1️ Augšupielāde",
+            "assessment": "2️ Novērtējums",
+            "review": "3️ Pārskatīšana",
+            "approval": "4️ Apstiprināšana",
+            "transformation": "5️ Transformācija",
+            "results": "6️ Rezultāti",
         }
 
         current_stage = st.session_state.workflow_stage
@@ -92,10 +92,10 @@ def main():
 
             Multi-agent data quality framework ar Human-in-the-Loop.
 
-            - 🤖 AI aģenti
-            - 🔄 HITL validācija
-            - 📊 FAIR principi
-            - 🧠 Adaptive learning
+            -  AI aģenti
+            -  HITL validācija
+            -  FAIR principi
+            -  Adaptive learning
             """)
 
     # Main content
@@ -150,10 +150,10 @@ def show_upload_stage():
                     return
 
             st.session_state.data = data
-            st.success(f"✅ Dati ielādēti: {data.shape[0]} rindas, {data.shape[1]} kolonnas")
+            st.success(f" Dati ielādēti: {data.shape[0]} rindas, {data.shape[1]} kolonnas")
 
             # Show data preview
-            st.subheader("📊 Datu Priekšskatījums")
+            st.subheader(" Datu Priekšskatījums")
             st.dataframe(data.head(10), use_container_width=True)
 
             # Show basic info
@@ -188,9 +188,9 @@ def show_assessment_stage():
 
     st.markdown("""
     **AI aģenti analizē jūsu datus pēc vairākām dimensijām:**
-    - 🎯 **Precision** - Format consistency, type validation
-    - ✅ **Completeness** - Missing value detection
-    - ♻️ **Reusability** - FAIR principles compliance
+    -  **Precision** - Format consistency, type validation
+    -  **Completeness** - Missing value detection
+    -  **Reusability** - FAIR principles compliance
     """)
 
     # Configuration
@@ -201,7 +201,7 @@ def show_assessment_stage():
             default=["precision", "completeness", "reusability"],
         )
 
-    if st.button("🚀 Sākt Analīzi", type="primary"):
+    if st.button(" Sākt Analīzi", type="primary"):
         with st.spinner("🤖 AI aģenti analizē datus..."):
             # Run analysis
             try:
@@ -531,14 +531,14 @@ def show_results_stage():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("### 📋 Pirms")
+        st.markdown("###  Pirms")
         st.metric("Rindas", original_data.shape[0])
         st.metric("Kolonnas", original_data.shape[1])
         missing_before = original_data.isna().sum().sum()
         st.metric("Trūkstošas vērtības", missing_before)
 
     with col2:
-        st.markdown("### ✨ Pēc")
+        st.markdown("###  Pēc")
         st.metric("Rindas", improved_data.shape[0])
         st.metric("Kolonnas", improved_data.shape[1])
         missing_after = improved_data.isna().sum().sum()
@@ -546,11 +546,11 @@ def show_results_stage():
         st.metric("Trūkstošas vērtības", missing_after, f"-{filled}")
 
     # Data preview
-    st.subheader("👀 Uzlaboto Datu Priekšskatījums")
+    st.subheader(" Uzlaboto Datu Priekšskatījums")
     st.dataframe(improved_data.head(10), use_container_width=True)
 
     # Download
-    st.subheader("💾 Lejupielāde")
+    st.subheader(" Lejupielāde")
 
     @st.cache_data
     def convert_df_to_csv(df):
@@ -559,7 +559,7 @@ def show_results_stage():
     csv = convert_df_to_csv(improved_data)
 
     st.download_button(
-        label="📥 Lejupielādēt CSV",
+        label=" Lejupielādēt CSV",
         data=csv,
         file_name="improved_data.csv",
         mime="text/csv",
@@ -567,7 +567,7 @@ def show_results_stage():
     )
 
     # Start over
-    if st.button("🔄 Sākt No Jauna", use_container_width=True):
+    if st.button(" Sākt No Jauna", use_container_width=True):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
