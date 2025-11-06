@@ -1,5 +1,7 @@
 # 🚀 Kā Palaist healthdq-ai
 
+> **⚠️ SVARĪGI:** Vienmēr palaiž aplikāciju no projekta saknes direktorijas (`AI_Agent_Based_Data_Quality_Framework/`), nevis no `src/` vai citām apakšdirektorijām.
+
 ## Ātri Sākt
 
 ### 1. Streamlit UI režīms (Ātrākais - Ieteicams sākumam)
@@ -7,10 +9,13 @@
 Izmanto minimālas atkarības tikai UI funkcionalitātei ar simulētu analīzi:
 
 ```bash
+# Pārliecinies, ka esi projekta saknes direktorijā
+cd /path/to/AI_Agent_Based_Data_Quality_Framework
+
 # Instalē tikai UI pakotnes (ātri, ~50MB)
 pip install -r requirements-streamlit.txt
 
-# Palaiž aplikāciju
+# Palaiž aplikāciju NO PROJEKTA SAKNES
 streamlit run src/healthdq/ui/streamlit_app.py
 ```
 
@@ -19,10 +24,15 @@ streamlit run src/healthdq/ui/streamlit_app.py
 - Maza izmēra (~50MB)
 - Ideāli demo/testēšanai
 - Darbosies ar simulētu AI analīzi
+- Nav nepieciešama `pip install -e .` instalācija
 
 **⚠️ Ierobežojumi:**
 - Nav pieejama pilna AI/LLM funkcionalitāte
 - Izmanto vienkāršu uz noteikumiem balstītu analīzi
+
+**📍 Svarīgi:**
+- VIENMĒR palaiž no projekta saknes direktorijas
+- Aplikācija automātiski pievieno projektu Python ceļam
 
 ### 2. Pilna AI instalācija (Prasa vairāk laika)
 
@@ -126,10 +136,22 @@ pip install streamlit
 
 ### Kļūda: "No module named 'healthdq'"
 
+**Problēma:** Aplikācija nevar atrast healthdq moduli
+
+**Risinājumi:**
 ```bash
-# Instalē projektu
+# Risinājums 1: Palaiž no projekta saknes (IETEICAMS)
+cd /path/to/AI_Agent_Based_Data_Quality_Framework
+streamlit run src/healthdq/ui/streamlit_app.py
+
+# Risinājums 2: Instalē kā pakotni
 pip install -e .
+
+# Risinājums 3: Iestatīt PYTHONPATH
+export PYTHONPATH="${PYTHONPATH}:/path/to/AI_Agent_Based_Data_Quality_Framework"
 ```
+
+**Piezīme:** Ja palaiž no projekta saknes, aplikācija automātiski pievieno projektu Python ceļam.
 
 ### Kļūda: "ModuleNotFoundError: No module named 'pandas'"
 

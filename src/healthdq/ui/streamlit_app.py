@@ -13,29 +13,44 @@ Interaktīvs interfeiss ar pilnu HITL workflow:
 import streamlit as st
 import pandas as pd
 import asyncio
+import sys
 from pathlib import Path
 
-# Check for optional ML dependencies
+# Add project root to Python path for local imports
+project_root = Path(__file__).parent.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# Check for healthdq package and ML dependencies
 ML_FEATURES_AVAILABLE = True
 MISSING_DEPENDENCIES = []
 
+# Check if healthdq package is available
 try:
-    import langchain
+    import healthdq
 except ImportError:
     ML_FEATURES_AVAILABLE = False
-    MISSING_DEPENDENCIES.append("langchain")
+    MISSING_DEPENDENCIES.append("healthdq package (run: pip install -e .)")
 
-try:
-    import chromadb
-except ImportError:
-    ML_FEATURES_AVAILABLE = False
-    MISSING_DEPENDENCIES.append("chromadb")
+# Check for optional ML dependencies
+if ML_FEATURES_AVAILABLE:
+    try:
+        import langchain
+    except ImportError:
+        ML_FEATURES_AVAILABLE = False
+        MISSING_DEPENDENCIES.append("langchain")
 
-try:
-    import torch
-except ImportError:
-    # Torch is optional, warn but don't disable features
-    MISSING_DEPENDENCIES.append("torch")
+    try:
+        import chromadb
+    except ImportError:
+        ML_FEATURES_AVAILABLE = False
+        MISSING_DEPENDENCIES.append("chromadb")
+
+    try:
+        import torch
+    except ImportError:
+        # Torch is optional, warn but don't disable features
+        MISSING_DEPENDENCIES.append("torch")
 
 # Configure page
 st.set_page_config(
@@ -158,6 +173,61 @@ def _simulate_analysis(data: pd.DataFrame, dimensions: list) -> dict:
     results["overall_score"] = total_score / len(dimensions) if dimensions else 0.5
 
     return results
+
+
+def _create_simulated_review_session(data: pd.DataFrame, quality_results: dict, improvement_plan: dict) -> dict:
+    """
+    Create a simulated review session when healthdq package is not available.
+    """
+    import uuid
+    from datetime import datetime
+
+    actions = improvement_plan.get("actions", [])
+
+    return {
+        "session_id": str(uuid.uuid4()),
+        "created_at": datetime.now().isoformat(),
+        "data_info": {
+            "rows": len(data),
+            "columns": len(data.columns),
+            "missing_values": int(data.isna().sum().sum())
+        },
+        "quality_summary": quality_results,
+        "proposed_changes": actions,
+        "mode": "simulated"
+    }
+
+
+def _apply_simulated_transformations(data: pd.DataFrame, approved_changes: list) -> pd.DataFrame:
+    """
+    Apply basic transformations when healthdq package is not available.
+    """
+    import numpy as np
+
+    improved_data = data.copy()
+
+    for change in approved_changes:
+        if not change.get("approved", False):
+            continue
+
+        column = change.get("column")
+        action = change.get("recommended_action", "")
+
+        if not column or column not in improved_data.columns:
+            continue
+
+        # Basic imputation for missing values
+        if "aizpildīt" in action.lower() or "missing" in action.lower():
+            if improved_data[column].dtype in ['float64', 'int64']:
+                # Fill numeric with median
+                improved_data[column].fillna(improved_data[column].median(), inplace=True)
+            else:
+                # Fill categorical with mode
+                mode_value = improved_data[column].mode()
+                if len(mode_value) > 0:
+                    improved_data[column].fillna(mode_value[0], inplace=True)
+
+    return improved_data
 
 
 def main():
@@ -486,14 +556,21 @@ def show_review_stage():
         with col2:
             if st.button("✅ Pārskatīt un Apstiprināt", type="primary", use_container_width=True):
                 # Create review session
-                from healthdq.hitl.review import DataReview
-
-                reviewer = DataReview()
-                review_session = reviewer.create_review_session(
-                    st.session_state.data,
-                    results,
-                    improvement_plan
-                )
+                if ML_FEATURES_AVAILABLE:
+                    from healthdq.hitl.review import DataReview
+                    reviewer = DataReview()
+                    review_session = reviewer.create_review_session(
+                        st.session_state.data,
+                        results,
+                        improvement_plan
+                    )
+                else:
+                    # Use simulated review session
+                    review_session = _create_simulated_review_session(
+                        st.session_state.data,
+                        results,
+                        improvement_plan
+                    )
 
                 st.session_state.review_session = review_session
                 st.session_state.workflow_stage = "approval"
@@ -519,7 +596,83 @@ def show_approval_stage():
     Jūsu feedback palīdz sistēmai mācīties un uzlaboties!
     """)
 
-    # Create approval manager
+    # Handle demo mode with simplified approval
+    if not ML_FEATURES_AVAILABLE:
+        st.info("ℹ️ Demo režīmā: Vienkāršots apstiprināšanas process")
+
+        # Initialize simple approval tracking in session state
+        if "simple_approvals" not in st.session_state:
+            st.session_state.simple_approvals = {i: None for i in range(len(proposed_changes))}
+
+        # Show each change for simple approval
+        for i, change in enumerate(proposed_changes):
+            with st.container():
+                st.markdown(f"### Izmaiņa #{i + 1}")
+
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.markdown(f"**Kolonna:** {change.get('column', 'N/A')}")
+                    st.markdown(f"**Darbība:** {change.get('recommended_action', 'N/A')}")
+                    st.markdown(f"**Svarīgums:** {change.get('severity', 'medium')}")
+
+                with col2:
+                    approval_status = st.session_state.simple_approvals[i]
+
+                    if approval_status is None:
+                        if st.button(f"✅ Apstiprināt", key=f"approve_{i}"):
+                            st.session_state.simple_approvals[i] = True
+                            st.rerun()
+
+                        if st.button(f"❌ Noraidīt", key=f"reject_{i}"):
+                            st.session_state.simple_approvals[i] = False
+                            st.rerun()
+                    elif approval_status:
+                        st.success("✅ Apstiprināts")
+                    else:
+                        st.error("❌ Noraidīts")
+
+                st.markdown("---")
+
+        # Bulk actions for demo mode
+        st.subheader("⚡ Masveida Darbības")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("✅ Apstiprināt Visas", use_container_width=True):
+                for i in range(len(proposed_changes)):
+                    st.session_state.simple_approvals[i] = True
+                st.rerun()
+
+        with col2:
+            if st.button("❌ Noraidīt Visas", use_container_width=True):
+                for i in range(len(proposed_changes)):
+                    st.session_state.simple_approvals[i] = False
+                st.rerun()
+
+        # Finalize button
+        st.markdown("---")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("◀️ Atpakaļ", use_container_width=True):
+                st.session_state.workflow_stage = "review"
+                st.rerun()
+
+        with col2:
+            if st.button("🔄 Turpināt uz Transformāciju", type="primary", use_container_width=True):
+                # Mark approved changes
+                for i, change in enumerate(proposed_changes):
+                    change["approved"] = st.session_state.simple_approvals.get(i, False)
+
+                st.session_state.workflow_stage = "transformation"
+                st.rerun()
+
+        return
+
+    # Full ML mode with ApprovalManager
     from healthdq.hitl.approval import ApprovalManager
 
     if "approval_manager" not in st.session_state:
@@ -610,6 +763,41 @@ def show_transformation_stage():
     """Stage 5: Apply approved transformations."""
     st.header("5️⃣ Datu Transformācija")
 
+    # Handle demo mode
+    if not ML_FEATURES_AVAILABLE:
+        if st.session_state.review_session is None:
+            st.warning("⚠️ Nav review sesijas.")
+            return
+
+        review = st.session_state.review_session
+        proposed_changes = review["proposed_changes"]
+
+        # Get approved changes from the proposed changes
+        approved_changes = [change for change in proposed_changes if change.get("approved", False)]
+
+        st.info(f"ℹ️ Demo režīms: Piemēro {len(approved_changes)} apstiprinātās izmaiņas ar vienkāršu transformāciju...")
+
+        with st.spinner("🔄 Transformē datus..."):
+            try:
+                # Use simulated transformation
+                improved_data = _apply_simulated_transformations(
+                    st.session_state.data,
+                    proposed_changes
+                )
+
+                st.session_state.improved_data = improved_data
+                st.success("✅ Transformācija pabeigta!")
+
+                st.session_state.workflow_stage = "results"
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Kļūda transformācijā: {str(e)}")
+                st.exception(e)
+
+        return
+
+    # Full ML mode
     if st.session_state.final_decision is None:
         st.warning("⚠️ Nav apstiprinātu izmaiņu.")
         return
@@ -650,6 +838,7 @@ def show_transformation_stage():
 
         except Exception as e:
             st.error(f"❌ Kļūda transformācijā: {str(e)}")
+            st.exception(e)
 
 
 def show_results_stage():
