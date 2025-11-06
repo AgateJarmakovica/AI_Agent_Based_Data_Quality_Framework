@@ -14,6 +14,8 @@ import streamlit as st
 import pandas as pd
 import asyncio
 import sys
+import tempfile
+import os
 from pathlib import Path
 
 # Add src directory to Python path for local imports
@@ -75,6 +77,10 @@ if "improved_data" not in st.session_state:
     st.session_state.improved_data = None
 if "workflow_stage" not in st.session_state:
     st.session_state.workflow_stage = "upload"
+if "temp_file_path" not in st.session_state:
+    st.session_state.temp_file_path = None
+if "file_size_mb" not in st.session_state:
+    st.session_state.file_size_mb = 0
 
 
 def _simulate_analysis(data: pd.DataFrame, dimensions: list) -> dict:
@@ -198,6 +204,39 @@ def _create_simulated_review_session(data: pd.DataFrame, quality_results: dict, 
         "proposed_changes": actions,
         "mode": "simulated"
     }
+
+
+def _send_feedback_to_coordinator(change: dict, approved: bool, coordinator=None) -> None:
+    """
+    Send feedback to coordinator agent for adaptive learning.
+
+    Args:
+        change: The change that was approved/rejected
+        approved: Whether the change was approved
+        coordinator: CoordinatorAgent instance (optional)
+    """
+    if coordinator is None:
+        # Try to import and create coordinator
+        try:
+            from healthdq.agents.coordinator import CoordinatorAgent
+            from healthdq.config import get_config
+
+            config = get_config()
+            coordinator = CoordinatorAgent(config)
+        except (ImportError, ModuleNotFoundError):
+            # Coordinator not available, skip feedback
+            return
+
+    # Check if coordinator has learning method
+    if hasattr(coordinator, 'learn_from_feedback'):
+        try:
+            asyncio.run(
+                coordinator.learn_from_feedback(change, approved=approved)
+            )
+        except Exception as e:
+            # Silent fail - don't disrupt user experience if feedback fails
+            import logging
+            logging.warning(f"Failed to send feedback to coordinator: {e}")
 
 
 def _apply_simulated_transformations(data: pd.DataFrame, approved_changes: list) -> pd.DataFrame:
@@ -340,28 +379,90 @@ def show_upload_stage():
 
     if uploaded_file:
         try:
+            # Check file size
+            file_size_bytes = uploaded_file.size
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            st.session_state.file_size_mb = file_size_mb
+
             # Load data based on file type
             file_extension = Path(uploaded_file.name).suffix.lower()
 
+            # For large files (>50 MB), use temp file on disk to optimize memory
+            use_temp_file = file_size_mb > 50
+
+            if use_temp_file:
+                st.info(f"ℹ️ Liels fails ({file_size_mb:.1f} MB) - izmanto optimizētu režīmu ar failu uz diska")
+
             with st.spinner("Ielādē datus..."):
-                if file_extension == ".csv":
-                    data = pd.read_csv(uploaded_file)
-                elif file_extension in [".xlsx", ".xls"]:
-                    data = pd.read_excel(uploaded_file)
-                elif file_extension == ".json":
-                    data = pd.read_json(uploaded_file)
-                elif file_extension == ".parquet":
-                    data = pd.read_parquet(uploaded_file)
+                if use_temp_file:
+                    # Save to temp file for large files
+                    temp_dir = tempfile.gettempdir()
+                    temp_filename = f"healthdq_upload_{uploaded_file.name}"
+                    temp_path = os.path.join(temp_dir, temp_filename)
+
+                    # Write uploaded file to disk
+                    with open(temp_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    st.session_state.temp_file_path = temp_path
+
+                    # Read from disk
+                    if file_extension == ".csv":
+                        data = pd.read_csv(temp_path)
+                    elif file_extension in [".xlsx", ".xls"]:
+                        data = pd.read_excel(temp_path)
+                    elif file_extension == ".json":
+                        data = pd.read_json(temp_path)
+                    elif file_extension == ".parquet":
+                        data = pd.read_parquet(temp_path)
+                    else:
+                        st.error(f"Neatbalstīts formāts: {file_extension}")
+                        return
+
+                    st.toast(f"✅ Fails saglabāts uz diska: {temp_path}", icon="💾")
                 else:
-                    st.error(f"Neatbalstīts formāts: {file_extension}")
-                    return
+                    # Load directly into memory for smaller files
+                    st.session_state.temp_file_path = None
+
+                    if file_extension == ".csv":
+                        data = pd.read_csv(uploaded_file)
+                    elif file_extension in [".xlsx", ".xls"]:
+                        data = pd.read_excel(uploaded_file)
+                    elif file_extension == ".json":
+                        data = pd.read_json(uploaded_file)
+                    elif file_extension == ".parquet":
+                        data = pd.read_parquet(uploaded_file)
+                    else:
+                        st.error(f"Neatbalstīts formāts: {file_extension}")
+                        return
 
             st.session_state.data = data
-            st.success(f"✅ Dati ielādēti: {data.shape[0]} rindas, {data.shape[1]} kolonnas")
+            st.success(f"✅ Dati ielādēti: {data.shape[0]} rindas, {data.shape[1]} kolonnas ({file_size_mb:.1f} MB)")
 
-            # Show data preview
+            # Show data preview with editor option
             st.subheader("📊 Datu Priekšskatījums")
-            st.dataframe(data.head(10), use_container_width=True)
+
+            preview_mode = st.radio(
+                "Priekšskatījuma režīms:",
+                ["Tikai skatīšanās", "Rediģēšanas režīms"],
+                horizontal=True,
+                help="Rediģēšanas režīms ļauj veikt ātras izmaiņas tieši tabulā"
+            )
+
+            if preview_mode == "Rediģēšanas režīms":
+                edited_data = st.data_editor(
+                    data.head(20),
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    key="upload_editor"
+                )
+
+                if st.button("💾 Saglabāt Izmaiņas", key="save_edits"):
+                    # Update full data with edits
+                    st.session_state.data.iloc[:20] = edited_data.values
+                    st.toast("✅ Izmaiņas saglabātas", icon="💾")
+            else:
+                st.dataframe(data.head(10), use_container_width=True)
 
             # Show basic info
             col1, col2, col3, col4 = st.columns(4)
@@ -419,16 +520,14 @@ def show_assessment_stage():
                 config = get_config()
                 coordinator = CoordinatorAgent(config)
 
-                # Run async analysis
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                results = loop.run_until_complete(
+                # Run async analysis (modern approach with asyncio.run())
+                results = asyncio.run(
                     coordinator.analyze(st.session_state.data, dimensions=dimensions)
                 )
-                loop.close()
 
                 st.session_state.quality_results = results
                 st.session_state.workflow_stage = "review"
+                st.toast("✅ Analīze pabeigta! Pārskatiet rezultātus.", icon="🤖")
                 st.rerun()
 
             except (ImportError, ModuleNotFoundError) as e:
@@ -590,7 +689,7 @@ def show_review_stage():
 
 
 def show_approval_stage():
-    """Stage 4: Human approval."""
+    """Stage 4: Human approval with auto-approve support."""
     st.header("4️⃣ Izmaiņu Apstiprināšana")
 
     if st.session_state.review_session is None:
@@ -600,10 +699,15 @@ def show_approval_stage():
     review = st.session_state.review_session
     proposed_changes = review["proposed_changes"]
 
-    st.markdown("""
+    # Get auto-approve threshold
+    auto_approve_threshold = st.session_state.get("auto_approve_threshold", 0.95)
+
+    st.markdown(f"""
     **Lūdzu, pārskatiet un apstipriniet vai noraidiet katru ieteikto izmaiņu.**
 
     Jūsu feedback palīdz sistēmai mācīties un uzlaboties!
+
+    ℹ️ **Auto-approve slieksnis:** {auto_approve_threshold * 100:.0f}% - Izmaiņas ar augstāku pārliecību tiks automātiski apstiprinātas.
     """)
 
     # Try to use full approval system, fall back to demo mode if needed
@@ -629,9 +733,23 @@ def show_approval_stage():
         if "simple_approvals" not in st.session_state:
             st.session_state.simple_approvals = {i: None for i in range(len(proposed_changes))}
 
+            # Auto-approve changes with high confidence
+            auto_approved_count = 0
+            for i, change in enumerate(proposed_changes):
+                confidence = change.get("estimated_confidence", 0.5)
+                if confidence >= auto_approve_threshold:
+                    st.session_state.simple_approvals[i] = True
+                    auto_approved_count += 1
+
+            if auto_approved_count > 0:
+                st.toast(f"✅ {auto_approved_count} izmaiņas automātiski apstiprinātas (pārliecība ≥ {auto_approve_threshold * 100:.0f}%)", icon="✅")
+
         # Show each change for simple approval
         for i, change in enumerate(proposed_changes):
             with st.container():
+                confidence = change.get("estimated_confidence", 0.5)
+                was_auto_approved = confidence >= auto_approve_threshold
+
                 st.markdown(f"### Izmaiņa #{i + 1}")
 
                 col1, col2 = st.columns([3, 1])
@@ -640,6 +758,10 @@ def show_approval_stage():
                     st.markdown(f"**Kolonna:** {change.get('column', 'N/A')}")
                     st.markdown(f"**Darbība:** {change.get('recommended_action', 'N/A')}")
                     st.markdown(f"**Svarīgums:** {change.get('severity', 'medium')}")
+                    st.markdown(f"**Pārliecība:** {confidence * 100:.1f}%")
+
+                    if was_auto_approved and st.session_state.simple_approvals[i] is True:
+                        st.info("🤖 Automātiski apstiprināts (augsta pārliecība)")
 
                 with col2:
                     approval_status = st.session_state.simple_approvals[i]
@@ -647,10 +769,16 @@ def show_approval_stage():
                     if approval_status is None:
                         if st.button(f"✅ Apstiprināt", key=f"approve_{i}"):
                             st.session_state.simple_approvals[i] = True
+                            # Send feedback to coordinator for learning
+                            _send_feedback_to_coordinator(change, approved=True)
+                            st.toast("✅ Izmaiņa apstiprināta", icon="✅")
                             st.rerun()
 
                         if st.button(f"❌ Noraidīt", key=f"reject_{i}"):
                             st.session_state.simple_approvals[i] = False
+                            # Send feedback to coordinator for learning
+                            _send_feedback_to_coordinator(change, approved=False)
+                            st.toast("❌ Izmaiņa noraidīta", icon="❌")
                             st.rerun()
                     elif approval_status:
                         st.success("✅ Apstiprināts")
@@ -701,6 +829,20 @@ def show_approval_stage():
     approval_manager = st.session_state.approval_manager
     approval_request = st.session_state.approval_request
 
+    # Auto-approve high-confidence changes (run once on initialization)
+    if "auto_approve_applied" not in st.session_state:
+        st.session_state.auto_approve_applied = True
+        auto_approved_count = 0
+
+        for i, change in enumerate(proposed_changes):
+            confidence = change.get("estimated_confidence", 0.5)
+            if confidence >= auto_approve_threshold:
+                approval_manager.approve_change(approval_request["approval_id"], i)
+                auto_approved_count += 1
+
+        if auto_approved_count > 0:
+            st.toast(f"✅ {auto_approved_count} izmaiņas automātiski apstiprinātas (pārliecība ≥ {auto_approve_threshold * 100:.0f}%)", icon="✅")
+
     # Show each change for approval
     for i, change in enumerate(proposed_changes):
         with st.container():
@@ -715,12 +857,21 @@ def show_approval_stage():
                 st.markdown(f"**Svarīgums:** {change['severity']}")
                 st.markdown(f"**Ietekme:** {change['estimated_impact']}")
 
+                confidence = change.get("estimated_confidence", 0.5)
+                st.markdown(f"**Pārliecība:** {confidence * 100:.1f}%")
+
+                if confidence >= auto_approve_threshold and approval_request["change_approvals"][i]["approved"]:
+                    st.info("🤖 Automātiski apstiprināts (augsta pārliecība)")
+
             with col2:
                 approval_status = approval_request["change_approvals"][i]["approved"]
 
                 if approval_status is None:
                     if st.button(f"✅ Apstiprināt", key=f"approve_{i}"):
                         approval_manager.approve_change(approval_request["approval_id"], i)
+                        # Send feedback to coordinator for learning
+                        _send_feedback_to_coordinator(change, approved=True)
+                        st.toast("✅ Izmaiņa apstiprināta", icon="✅")
                         st.rerun()
 
                     if st.button(f"❌ Noraidīt", key=f"reject_{i}"):
@@ -729,6 +880,9 @@ def show_approval_stage():
                             i,
                             "Noraidīts lietotāja"
                         )
+                        # Send feedback to coordinator for learning
+                        _send_feedback_to_coordinator(change, approved=False)
+                        st.toast("❌ Izmaiņa noraidīta", icon="❌")
                         st.rerun()
                 elif approval_status:
                     st.success("✅ Apstiprināts")
@@ -748,6 +902,7 @@ def show_approval_stage():
                 approval_request["approval_id"],
                 list(range(len(proposed_changes)))
             )
+            st.toast(f"✅ Visas {len(proposed_changes)} izmaiņas apstiprinātas", icon="✅")
             st.rerun()
 
     with col2:
@@ -757,6 +912,7 @@ def show_approval_stage():
                 list(range(len(proposed_changes))),
                 "Masveida noraidīšana"
             )
+            st.toast(f"❌ Visas {len(proposed_changes)} izmaiņas noraidītas", icon="❌")
             st.rerun()
 
     # Finalize
@@ -824,6 +980,7 @@ def show_transformation_stage():
 
             st.session_state.improved_data = improved_data
             st.success("✅ Transformācija pabeigta!")
+            st.toast("🎉 Datu kvalitāte uzlabota! Skatiet rezultātus.", icon="✨")
             st.session_state.workflow_stage = "results"
             st.rerun()
 
@@ -888,9 +1045,31 @@ def show_results_stage():
         filled = missing_before - missing_after
         st.metric("Trūkstošas vērtības", missing_after, f"-{filled}")
 
-    # Data preview
+    # Data preview with editor
     st.subheader("👀 Uzlaboto Datu Priekšskatījums")
-    st.dataframe(improved_data.head(10), use_container_width=True)
+
+    result_preview_mode = st.radio(
+        "Priekšskatījuma režīms:",
+        ["Tikai skatīšanās", "Rediģēšanas režīms"],
+        horizontal=True,
+        key="result_preview_mode",
+        help="Rediģēšanas režīms ļauj veikt finālās korekcijas"
+    )
+
+    if result_preview_mode == "Rediģēšanas režīms":
+        edited_improved = st.data_editor(
+            improved_data.head(20),
+            use_container_width=True,
+            num_rows="dynamic",
+            key="result_editor"
+        )
+
+        if st.button("💾 Saglabāt Finālās Izmaiņas", key="save_final_edits"):
+            # Update improved data with final edits
+            st.session_state.improved_data.iloc[:20] = edited_improved.values
+            st.toast("✅ Finālās izmaiņas saglabātas", icon="💾")
+    else:
+        st.dataframe(improved_data.head(10), use_container_width=True)
 
     # Download
     st.subheader("💾 Lejupielāde")
@@ -901,13 +1080,14 @@ def show_results_stage():
 
     csv = convert_df_to_csv(improved_data)
 
-    st.download_button(
+    if st.download_button(
         label="📥 Lejupielādēt CSV",
         data=csv,
         file_name="improved_data.csv",
         mime="text/csv",
         use_container_width=True,
-    )
+    ):
+        st.toast("📥 Uzlabotie dati lejupielādēti!", icon="💾")
 
     # Start over
     if st.button("🔄 Sākt No Jauna", use_container_width=True):
