@@ -1,26 +1,77 @@
 # 🚀 Kā Palaist healthdq-ai
 
+> **⚠️ SVARĪGI:** Vienmēr palaiž aplikāciju no projekta saknes direktorijas (`AI_Agent_Based_Data_Quality_Framework/`), nevis no `src/` vai citām apakšdirektorijām.
+
 ## Ātri Sākt
 
-### 1. Minimālā instalācija (ja nav laika)
+### 1. Streamlit UI režīms (Ātrākais - Ieteicams sākumam)
+
+Izmanto minimālas atkarības tikai UI funkcionalitātei ar simulētu analīzi:
 
 ```bash
-# Instalē pamata pakotnes
+# Pārliecinies, ka esi projekta saknes direktorijā
+cd /path/to/AI_Agent_Based_Data_Quality_Framework
+
+# Instalē tikai UI pakotnes (ātri, ~50MB)
+pip install -r requirements-streamlit.txt
+
+# Palaiž aplikāciju NO PROJEKTA SAKNES
+streamlit run src/healthdq/ui/streamlit_app.py
+```
+
+**✅ Priekšrocības:**
+- Ātra instalācija (dažas sekundes)
+- Maza izmēra (~50MB)
+- Ideāli demo/testēšanai
+- Darbosies ar simulētu AI analīzi
+- Nav nepieciešama `pip install -e .` instalācija
+
+**⚠️ Ierobežojumi:**
+- Nav pieejama pilna AI/LLM funkcionalitāte
+- Izmanto vienkāršu uz noteikumiem balstītu analīzi
+
+**📍 Svarīgi:**
+- VIENMĒR palaiž no projekta saknes direktorijas
+- Aplikācija automātiski pievieno projektu Python ceļam
+
+### 2. Pilna AI instalācija (Prasa vairāk laika)
+
+Pilna funkcionalitāte ar AI aģentiem, LLM un vektoru datubāzi:
+
+```bash
+# Instalē visas atkarības (var ilgt ~5-10 min, ~3GB)
+pip install -r requirements.txt
+
+# VAI instalē kā pakotni
+pip install -e .
+
+# Palaiž aplikāciju
+streamlit run src/healthdq/ui/streamlit_app.py
+```
+
+**✅ Priekšrocības:**
+- Pilna AI funkcionalitāte
+- Multi-agent analīze
+- LangChain/LangGraph integrācija
+- ChromaDB vektoru atmiņa
+- Transformers un torch atbalsts
+
+**⚠️ Prasības:**
+- Lielāks lejupielādes izmērs (~3GB)
+- Ilgāka instalācija
+- Vairāk RAM (~4GB+)
+
+### 3. Ātras pārbaudes instalācija (tikai UI bez instalācijas)
+
+```bash
+# Instalē tikai 3 pamata pakotnes
 pip install streamlit pandas pyyaml
 
 # Palaiž aplikāciju
 streamlit run src/healthdq/ui/streamlit_app.py
 ```
 
-### 2. Pilna instalācija (ieteicams)
-
-```bash
-# Instalē visu projektu ar visām atkarībām
-pip install -e .
-
-# Palaiž aplikāciju
-streamlit run src/healthdq/ui/streamlit_app.py
-```
+> **Piezīme:** Ja ML pakotnes nav instalētas, aplikācija automātiski pārslēdzas uz demo režīmu un parādīs brīdinājumu.
 
 ---
 
@@ -58,6 +109,24 @@ ls -lh src/healthdq/ui/streamlit_app.py
 
 ## 🐛 Ja kaut kas nestrādā
 
+### Kļūda: "Error installing requirements"
+
+Ja instalējot `requirements.txt` rodas kļūdas (torch, transformers, utt.):
+
+```bash
+# Risinājums 1: Izmanto minimālās atkarības (IETEICAMS)
+pip install -r requirements-streamlit.txt
+
+# Risinājums 2: Instalē pakāpeniski
+pip install streamlit pandas pyyaml
+pip install -e .  # Pēc tam pārējās
+
+# Risinājums 3: Tikai pamatpakotnes
+pip install streamlit pandas pyyaml python-dotenv loguru pydantic
+```
+
+**Piezīme:** Aplikācija automātiski noteiks, kuras pakotnes trūkst un strādās demo režīmā.
+
 ### Kļūda: "streamlit: command not found"
 
 ```bash
@@ -67,10 +136,22 @@ pip install streamlit
 
 ### Kļūda: "No module named 'healthdq'"
 
+**Problēma:** Aplikācija nevar atrast healthdq moduli
+
+**Risinājumi:**
 ```bash
-# Instalē projektu
+# Risinājums 1: Palaiž no projekta saknes (IETEICAMS)
+cd /path/to/AI_Agent_Based_Data_Quality_Framework
+streamlit run src/healthdq/ui/streamlit_app.py
+
+# Risinājums 2: Instalē kā pakotni
 pip install -e .
+
+# Risinājums 3: Iestatīt PYTHONPATH
+export PYTHONPATH="${PYTHONPATH}:/path/to/AI_Agent_Based_Data_Quality_Framework"
 ```
+
+**Piezīme:** Ja palaiž no projekta saknes, aplikācija automātiski pievieno projektu Python ceļam.
 
 ### Kļūda: "ModuleNotFoundError: No module named 'pandas'"
 
@@ -85,6 +166,20 @@ pip install pandas pyyaml
 # Izmanto citu portu
 streamlit run src/healthdq/ui/streamlit_app.py --server.port 8502
 ```
+
+### Brīdinājums: "⚠️ Demo režīms"
+
+Ja aplikācija parāda šo brīdinājumu:
+
+```
+⚠️ Demo režīms: Daži ML funkcionalitāte nav pieejama.
+```
+
+**Iemesls:** Nav instalētas visas ML pakotnes (langchain, chromadb, torch)
+
+**Risinājums:**
+- Ja vēlies pilnu funkcionalitāti: `pip install -r requirements.txt`
+- Ja vēlies tikai testēt UI: turpini izmantot demo režīmu (darbosies ar vienkāršu analīzi)
 
 ---
 

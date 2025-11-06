@@ -1,6 +1,14 @@
 """
-Data quality metrics calculator
+Data quality metrics calculator based on research publication formulas
 Author: Agate Jarmakoviča
+
+Implements three primary dimensions from publication:
+1. Accuracy - Anomaly detection with Isolation Forest & LOF
+2. Completeness - Missing value analysis with KNN imputation reference
+3. Reusability - FAIR principles: documentation, metadata, version control
+
+Weighted DQ Score: w1×Accuracy + w2×Completeness + w3×Reusability
+Where: w1=0.4, w2=0.4, w3=0.2 (from ISO 25024 guidelines)
 """
 
 from typing import Any, Dict, List, Optional
@@ -105,13 +113,26 @@ class MetricsCalculator:
         self, data: pd.DataFrame, original_data: Optional[pd.DataFrame] = None
     ) -> Dict[str, Any]:
         """
-        Calculate accuracy metrics.
+        Calculate accuracy metrics using anomaly detection.
 
-        Measures: data type accuracy, format compliance, outliers
+        Based on publication formula:
+        Accuracy = 1 - (Number of detected anomalies / Total records)
+
+        Uses Isolation Forest and Local Outlier Factor (LOF) for anomaly detection.
+
+        Args:
+            data: DataFrame to analyze
+            original_data: Optional original data for comparison
+
+        Returns:
+            Dictionary with accuracy metrics including:
+            - anomaly_ratio: Ratio of anomalies detected
+            - overall_score: Publication formula accuracy score
+            - method: Detection method used (IsolationForest or LOF)
         """
         accuracy_metrics = {
             "type_accuracy": {},
-            "format_compliance": {},
+            "anomaly_detection": {},
             "outlier_ratio": {},
         }
 
@@ -129,8 +150,80 @@ class MetricsCalculator:
                 type_accuracy = 1.0 - safe_divide(invalid_dates, len(data))
                 accuracy_metrics["type_accuracy"][col] = round(type_accuracy, 4)
 
-        # Outlier detection for numeric columns
+        # Anomaly detection using Isolation Forest and LOF
         numeric_cols = data.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            # Prepare data for anomaly detection
+            numeric_data = data[numeric_cols].dropna()
+
+            if len(numeric_data) >= 10:  # Need minimum data for anomaly detection
+                try:
+                    from sklearn.ensemble import IsolationForest
+                    from sklearn.neighbors import LocalOutlierFactor
+
+                    # Isolation Forest (as per publication)
+                    iso_forest = IsolationForest(contamination=0.1, random_state=42, n_estimators=100)
+                    iso_predictions = iso_forest.fit_predict(numeric_data)
+                    iso_anomalies = (iso_predictions == -1).sum()
+
+                    # Local Outlier Factor (as per publication)
+                    lof = LocalOutlierFactor(n_neighbors=5, contamination=0.1)
+                    lof_predictions = lof.fit_predict(numeric_data)
+                    lof_anomalies = (lof_predictions == -1).sum()
+
+                    # Use average of both methods
+                    total_anomalies = (iso_anomalies + lof_anomalies) / 2
+
+                    accuracy_metrics["anomaly_detection"] = {
+                        "isolation_forest_anomalies": int(iso_anomalies),
+                        "lof_anomalies": int(lof_anomalies),
+                        "average_anomalies": round(float(total_anomalies), 2),
+                        "anomaly_ratio": round(total_anomalies / len(numeric_data), 4),
+                        "method": "Isolation Forest + LOF"
+                    }
+
+                    # Publication formula: Accuracy = 1 - (Number of anomalies / Total records)
+                    accuracy_from_anomalies = 1.0 - (total_anomalies / len(numeric_data))
+
+                except ImportError:
+                    logger.warning("sklearn not available, using IQR method for anomaly detection")
+                    accuracy_from_anomalies = self._calculate_accuracy_iqr(data, numeric_cols, accuracy_metrics)
+            else:
+                # Too few rows for ML-based anomaly detection
+                accuracy_from_anomalies = self._calculate_accuracy_iqr(data, numeric_cols, accuracy_metrics)
+        else:
+            # No numeric columns
+            accuracy_from_anomalies = 1.0
+
+        # Calculate overall accuracy score
+        type_scores = list(accuracy_metrics["type_accuracy"].values())
+
+        # Combine type accuracy and anomaly-based accuracy
+        all_scores = type_scores + [accuracy_from_anomalies]
+        overall_accuracy = np.mean(all_scores) if all_scores else 1.0
+
+        accuracy_metrics["overall_score"] = round(overall_accuracy, 4)
+        accuracy_metrics["anomaly_based_accuracy"] = round(accuracy_from_anomalies, 4)
+
+        # If original data provided, calculate improvement
+        if original_data is not None:
+            original_accuracy = self.calculate_accuracy(original_data)["overall_score"]
+            accuracy_metrics["improvement"] = round(overall_accuracy - original_accuracy, 4)
+
+        return accuracy_metrics
+
+    def _calculate_accuracy_iqr(
+        self, data: pd.DataFrame, numeric_cols: pd.Index, accuracy_metrics: Dict[str, Any]
+    ) -> float:
+        """
+        Fallback accuracy calculation using IQR method.
+
+        Returns:
+            Accuracy score based on IQR outlier detection
+        """
+        total_outliers = 0
+        total_values = 0
+
         for col in numeric_cols:
             q1 = data[col].quantile(0.25)
             q3 = data[col].quantile(0.75)
@@ -139,22 +232,11 @@ class MetricsCalculator:
             outlier_ratio = safe_divide(outliers, len(data))
             accuracy_metrics["outlier_ratio"][col] = round(outlier_ratio, 4)
 
-        # Calculate overall accuracy score
-        type_scores = list(accuracy_metrics["type_accuracy"].values())
-        outlier_scores = [1.0 - r for r in accuracy_metrics["outlier_ratio"].values()]
-        all_scores = type_scores + outlier_scores
+            total_outliers += outliers
+            total_values += len(data[col].dropna())
 
-        overall_accuracy = np.mean(all_scores) if all_scores else 1.0
-
-        accuracy_metrics["overall_score"] = round(overall_accuracy, 4)
-
-        # If original data provided, calculate improvement
-        if original_data is not None:
-            original_completeness = self.calculate_completeness(original_data)["overall_score"]
-            current_completeness = self.calculate_completeness(data)["overall_score"]
-            accuracy_metrics["improvement"] = round(current_completeness - original_completeness, 4)
-
-        return accuracy_metrics
+        # IQR-based accuracy
+        return 1.0 - safe_divide(total_outliers, total_values) if total_values > 0 else 1.0
 
     def calculate_consistency(self, data: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -332,21 +414,26 @@ class MetricsCalculator:
 
     def calculate_fair_metrics(self, data: pd.DataFrame) -> Dict[str, Any]:
         """
-        Calculate FAIR principles metrics.
+        Calculate FAIR principles metrics with emphasis on Reusability.
+
+        Based on publication formula for Reusability:
+        Reusability = (Documented processes + Metadata + Version control) / 3
 
         F - Findable: Has metadata, documentation
         A - Accessible: Data completeness
         I - Interoperable: Standard formats
-        R - Reusable: Clear licensing, good quality
+        R - Reusable: Documentation + Metadata + Reproducibility
         """
         fair_metrics = {}
 
         # Findability
         has_metadata = bool(data.attrs)
+        has_description = "description" in data.attrs if data.attrs else False
         fair_metrics["findable"] = {
             "has_metadata": has_metadata,
+            "has_description": has_description,
             "has_column_names": all(bool(str(col).strip()) for col in data.columns),
-            "score": 1.0 if has_metadata else 0.5,
+            "score": 1.0 if (has_metadata and has_description) else 0.5 if has_metadata else 0.0,
         }
 
         # Accessibility
@@ -362,9 +449,26 @@ class MetricsCalculator:
         )
         fair_metrics["interoperable"] = {"standard_types": has_standard_types, "score": 1.0 if has_standard_types else 0.7}
 
-        # Reusability
-        consistency = self.calculate_consistency(data)
-        fair_metrics["reusable"] = {"consistency": consistency["overall_score"], "score": consistency["overall_score"]}
+        # Reusability (Publication formula)
+        # Check three components: Documentation, Metadata, Version Control/Reproducibility
+        doc_exists = has_description or bool(data.attrs)  # Has any documentation
+        metadata_exists = has_metadata and len(data.attrs) > 0  # Has meaningful metadata
+        version_control = "version" in data.attrs or "created_at" in data.attrs or "source" in data.attrs
+
+        reusability_components = {
+            "documentation": 1.0 if doc_exists else 0.0,
+            "metadata": 1.0 if metadata_exists else 0.0,
+            "version_control": 1.0 if version_control else 0.0,
+        }
+
+        # Publication formula: Reusability = (sum of components) / 3
+        reusability_score = sum(reusability_components.values()) / 3
+
+        fair_metrics["reusable"] = {
+            "components": reusability_components,
+            "score": round(reusability_score, 4),
+            "formula": "Reusability = (documentation + metadata + version_control) / 3"
+        }
 
         # Overall FAIR score
         fair_scores = [v["score"] for v in fair_metrics.values()]
@@ -373,22 +477,120 @@ class MetricsCalculator:
         return fair_metrics
 
     def _calculate_overall_score(self, metrics: Dict[str, Any]) -> float:
-        """Calculate weighted overall quality score."""
+        """
+        Calculate weighted overall quality score.
+
+        Based on publication formula and ISO 25024 guidelines:
+        DQ_total = w1 × Accuracy + w2 × Completeness + w3 × Reusability
+
+        Where:
+        w1 = 0.4 (Accuracy - critical for clinical precision)
+        w2 = 0.4 (Completeness - essential for model integrity)
+        w3 = 0.2 (Reusability - ensures reproducibility)
+        """
+        # Primary dimensions from publication
         weights = {
-            "completeness": 0.25,
-            "accuracy": 0.25,
-            "consistency": 0.20,
-            "uniqueness": 0.15,
-            "validity": 0.15,
+            "accuracy": 0.4,      # w1 - Accuracy (anomaly detection)
+            "completeness": 0.4,  # w2 - Completeness (missing values)
+            "reusability": 0.2,   # w3 - Reusability (FAIR principles)
         }
 
         score = 0.0
+        available_weight = 0.0
+
+        # Calculate primary score from three main dimensions
         for metric_name, weight in weights.items():
-            if metric_name in metrics:
+            if metric_name == "reusability":
+                # Use FAIR reusability score
+                if "fair_metrics" in metrics:
+                    metric_score = metrics["fair_metrics"]["reusable"]["score"]
+                    score += metric_score * weight
+                    available_weight += weight
+            elif metric_name in metrics:
                 metric_score = metrics[metric_name].get("overall_score", 1.0)
                 score += metric_score * weight
+                available_weight += weight
+
+        # Normalize by available weights
+        if available_weight > 0:
+            score = score / available_weight
+        else:
+            score = 1.0
 
         return round(score, 4)
+
+    def calculate_publication_dq_score(
+        self,
+        data: pd.DataFrame,
+        original_data: Optional[pd.DataFrame] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculate DQ score exactly as specified in publication.
+
+        Returns three-dimensional analysis:
+        1. Accuracy (Isolation Forest + LOF anomaly detection)
+        2. Completeness (Missing value ratio)
+        3. Reusability (Documentation + Metadata + Version Control)
+
+        Final score: DQ_total = 0.4×Accuracy + 0.4×Completeness + 0.2×Reusability
+        """
+        logger.info("Calculating publication-based DQ score")
+
+        # Calculate three primary dimensions
+        accuracy = self.calculate_accuracy(data, original_data)
+        completeness = self.calculate_completeness(data)
+        fair_metrics = self.calculate_fair_metrics(data)
+        reusability = fair_metrics["reusable"]["score"]
+
+        # Extract scores
+        accuracy_score = accuracy["overall_score"]
+        completeness_score = completeness["overall_score"]
+        reusability_score = reusability
+
+        # Publication formula with specified weights
+        w1, w2, w3 = 0.4, 0.4, 0.2
+        dq_total = (w1 * accuracy_score) + (w2 * completeness_score) + (w3 * reusability_score)
+
+        result = {
+            "dq_total": round(dq_total, 4),
+            "formula": "DQ = 0.4×Accuracy + 0.4×Completeness + 0.2×Reusability",
+            "weights": {"w1_accuracy": w1, "w2_completeness": w2, "w3_reusability": w3},
+            "dimensions": {
+                "accuracy": {
+                    "score": accuracy_score,
+                    "weight": w1,
+                    "contribution": round(w1 * accuracy_score, 4),
+                    "method": accuracy.get("anomaly_detection", {}).get("method", "IQR"),
+                },
+                "completeness": {
+                    "score": completeness_score,
+                    "weight": w2,
+                    "contribution": round(w2 * completeness_score, 4),
+                    "missing_percentage": completeness["missing_percentage"],
+                },
+                "reusability": {
+                    "score": reusability_score,
+                    "weight": w3,
+                    "contribution": round(w3 * reusability_score, 4),
+                    "components": fair_metrics["reusable"]["components"],
+                },
+            },
+            "data_shape": {"rows": data.shape[0], "columns": data.shape[1]},
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # Add improvement if original data provided
+        if original_data is not None:
+            original_result = self.calculate_publication_dq_score(original_data, None)
+            result["improvement"] = {
+                "dq_total": round(dq_total - original_result["dq_total"], 4),
+                "accuracy": round(accuracy_score - original_result["dimensions"]["accuracy"]["score"], 4),
+                "completeness": round(completeness_score - original_result["dimensions"]["completeness"]["score"], 4),
+                "reusability": round(reusability_score - original_result["dimensions"]["reusability"]["score"], 4),
+            }
+
+        logger.info(f"Publication DQ score: {dq_total:.4f}")
+        return result
 
 
 __all__ = ["MetricsCalculator"]

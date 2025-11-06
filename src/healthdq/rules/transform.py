@@ -18,11 +18,19 @@ class DataTransformer:
     Apply data quality transformations.
 
     Transformations include:
-    - Missing value imputation
-    - Outlier handling
+    - Missing value imputation (mean, median, mode, forward/backward fill)
+    - Outlier handling (IQR, Z-score, MAD methods)
     - Format standardization
-    - Data type conversion
+    - Data type conversion (numeric, datetime, boolean, categorical)
     - Column normalization
+    - Metadata and transformation history tracking
+
+    Features:
+    - Input validation for improvement plans
+    - Multiple outlier detection methods (IQR, Z-score, MAD)
+    - Automatic boolean and categorical type detection
+    - Transformation history for reproducibility (Reusability dimension)
+    - Version tracking for data lineage
     """
 
     def __init__(self, config: Optional[Any] = None):
@@ -50,6 +58,11 @@ class DataTransformer:
         """
         logger.info("Applying improvement plan")
 
+        # Validate improvement_plan structure
+        if not isinstance(improvement_plan, dict) or "actions" not in improvement_plan:
+            logger.warning("Invalid improvement plan structure. Expected dict with 'actions' key.")
+            return data
+
         transformed_data = data.copy()
 
         # Get actions from plan
@@ -75,11 +88,14 @@ class DataTransformer:
                     transformed_data = normalize_column_names(transformed_data)
 
                 elif action_type == "add_metadata":
-                    transformed_data = self.add_metadata(transformed_data)
+                    transformed_data = self.add_metadata(transformed_data, transformations=actions)
 
             except Exception as e:
                 logger.error(f"Failed to apply {action_type}: {str(e)}")
                 continue
+
+        # Always add metadata with transformation history for reproducibility
+        transformed_data = self.add_metadata(transformed_data, transformations=actions)
 
         logger.info("Improvement plan applied successfully")
         return transformed_data
@@ -149,6 +165,7 @@ class DataTransformer:
         column: Optional[str] = None,
         method: str = "clip",
         threshold: float = 1.5,
+        detection_method: str = "iqr",
     ) -> pd.DataFrame:
         """
         Handle outliers in numeric columns.
@@ -157,7 +174,8 @@ class DataTransformer:
             data: DataFrame
             column: Column to process (None for all numeric)
             method: Method (clip, remove, cap)
-            threshold: IQR threshold multiplier
+            threshold: Threshold multiplier (IQR: 1.5, zscore: 3.0, MAD: 3.0)
+            detection_method: Detection method (iqr, zscore, mad)
 
         Returns:
             DataFrame with outliers handled
@@ -173,20 +191,48 @@ class DataTransformer:
             if col not in result.columns:
                 continue
 
-            # Calculate IQR
-            q1 = result[col].quantile(0.25)
-            q3 = result[col].quantile(0.75)
-            iqr = q3 - q1
+            # Detect outliers based on selected method
+            if detection_method == "iqr":
+                # IQR method (Interquartile Range)
+                q1 = result[col].quantile(0.25)
+                q3 = result[col].quantile(0.75)
+                iqr = q3 - q1
 
-            lower_bound = q1 - threshold * iqr
-            upper_bound = q3 + threshold * iqr
+                lower_bound = q1 - threshold * iqr
+                upper_bound = q3 + threshold * iqr
+
+            elif detection_method == "zscore":
+                # Z-score method (standard deviation based)
+                mean = result[col].mean()
+                std = result[col].std()
+
+                lower_bound = mean - threshold * std
+                upper_bound = mean + threshold * std
+
+            elif detection_method == "mad":
+                # MAD method (Median Absolute Deviation)
+                median = result[col].median()
+                mad = np.median(np.abs(result[col] - median))
+
+                # MAD-based bounds (1.4826 is a constant for normal distribution)
+                lower_bound = median - threshold * 1.4826 * mad
+                upper_bound = median + threshold * 1.4826 * mad
+
+            else:
+                logger.warning(f"Unknown detection method '{detection_method}', using IQR")
+                q1 = result[col].quantile(0.25)
+                q3 = result[col].quantile(0.75)
+                iqr = q3 - q1
+
+                lower_bound = q1 - threshold * iqr
+                upper_bound = q3 + threshold * iqr
 
             outliers = ((result[col] < lower_bound) | (result[col] > upper_bound)).sum()
 
             if outliers == 0:
                 continue
 
-            logger.debug(f"Handling {outliers} outliers in {col}")
+            logger.debug(f"Handling {outliers} outliers in {col} using {detection_method} method")
 
             if method == "clip":
                 result[col] = result[col].clip(lower=lower_bound, upper=upper_bound)
@@ -224,8 +270,33 @@ class DataTransformer:
             if col not in result.columns:
                 continue
 
-            # Try to convert to numeric
+            # Try to convert to appropriate type
             if result[col].dtype == object:
+                # Try boolean conversion first
+                unique_values = result[col].dropna().str.lower().unique()
+                boolean_values = {"yes", "no", "true", "false", "y", "n", "1", "0", "t", "f"}
+
+                if len(unique_values) <= 4 and all(val in boolean_values for val in unique_values):
+                    # High confidence boolean detection
+                    bool_match_count = result[col].dropna().str.lower().isin(boolean_values).sum()
+                    if bool_match_count > len(result) * 0.9:  # 90% are boolean-like
+                        # Map to boolean
+                        bool_map = {
+                            "yes": True, "y": True, "true": True, "t": True, "1": True,
+                            "no": False, "n": False, "false": False, "f": False, "0": False
+                        }
+                        result[col] = result[col].str.lower().map(bool_map)
+                        logger.debug(f"Converted {col} to boolean")
+                        continue
+
+                # Try categorical conversion for low-cardinality columns
+                unique_count = result[col].nunique()
+                total_count = len(result)
+                if unique_count < 50 and (unique_count / total_count) < 0.05:  # Less than 5% unique
+                    result[col] = result[col].astype("category")
+                    logger.debug(f"Converted {col} to categorical ({unique_count} unique values)")
+                    continue
+
                 # Try numeric conversion
                 numeric_converted = pd.to_numeric(result[col], errors="coerce")
                 if numeric_converted.notna().sum() > len(result) * 0.8:  # 80% convertible
@@ -242,12 +313,17 @@ class DataTransformer:
 
         return result
 
-    def add_metadata(self, data: pd.DataFrame) -> pd.DataFrame:
+    def add_metadata(
+        self,
+        data: pd.DataFrame,
+        transformations: Optional[List[Dict[str, Any]]] = None,
+    ) -> pd.DataFrame:
         """
         Add metadata to DataFrame.
 
         Args:
             data: DataFrame
+            transformations: List of transformations applied (for history tracking)
 
         Returns:
             DataFrame with metadata
@@ -261,6 +337,15 @@ class DataTransformer:
         result.attrs["shape"] = data.shape
         result.attrs["columns"] = list(data.columns)
         result.attrs["dtypes"] = {col: str(dtype) for col, dtype in data.dtypes.items()}
+
+        # Add transformation history for reproducibility (Reusability dimension)
+        if transformations:
+            result.attrs["transformations_applied"] = transformations
+            logger.debug(f"Added transformation history: {len(transformations)} actions")
+
+        # Add version for reproducibility
+        result.attrs["version"] = self.config.get("version", "1.0")
+        result.attrs["transformer_version"] = "1.0"
 
         logger.debug("Metadata added to DataFrame")
         return result
