@@ -39,19 +39,19 @@ except ImportError:
 # Check for optional ML dependencies
 if ML_FEATURES_AVAILABLE:
     try:
-        import langchain
+        import langchain  # type: ignore
     except ImportError:
         ML_FEATURES_AVAILABLE = False
         MISSING_DEPENDENCIES.append("langchain")
 
     try:
-        import chromadb
+        import chromadb  # type: ignore
     except ImportError:
         ML_FEATURES_AVAILABLE = False
         MISSING_DEPENDENCIES.append("chromadb")
 
     try:
-        import torch
+        import torch  # type: ignore
     except ImportError:
         # Torch is optional, warn but don't disable features
         MISSING_DEPENDENCIES.append("torch")
