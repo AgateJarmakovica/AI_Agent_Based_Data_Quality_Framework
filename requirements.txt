@@ -1,11 +1,8 @@
-=====================================================================
 # requirements.txt for healthdq-ai (PAPILDINĀTS)
-# ---------------------------------------------------------------------
 # Project: healthdq-ai (Promocijas darba prototips)
 # Author: Agate Jarmakoviča
 # Version: 1.2.1
 # Date: 2025-11-06
-=====================================================================
 
 # --- Core dependencies ------------------------------------------------
 pandas==2.2.2          # Data handling, cleaning, and metric computation
