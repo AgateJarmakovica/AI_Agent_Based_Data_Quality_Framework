@@ -1,0 +1,311 @@
+# ================================================================
+# Human-in-the-Loop (HITL) Configuration
+# Author: Agate Jarmakoviča
+# Based on: "Managing the Human in the Loop" (Active Learning for ML)
+# ================================================================
+
+hitl:
+  # ============================================================
+  # 1️⃣ ANNOTATION QUALITY SETTINGS
+  # ============================================================
+  annotation_quality:
+    # Minimum thresholds for annotator qualification
+    min_accuracy: 0.90          # 90% accuracy on gold standard
+    min_kappa: 0.80             # Cohen's Kappa >= 0.80 (substantial agreement)
+
+    # Inter-annotator agreement requirements
+    require_multiple_annotators: true
+    n_annotators_per_sample: 2  # For critical data points
+    consensus_threshold: 0.80   # Agreement rate for consensus
+
+    # Quality control samples
+    use_control_samples: true
+    control_sample_frequency: 0.1  # 10% of batches
+
+    # Kappa interpretation thresholds
+    kappa_thresholds:
+      no_agreement: 0.0
+      slight: 0.20
+      fair: 0.40
+      moderate: 0.60
+      substantial: 0.80
+      perfect: 1.00
+
+  # ============================================================
+  # 2️⃣ ACTIVE LEARNING SETTINGS
+  # ============================================================
+  active_learning:
+    enabled: true
+
+    # Sampling strategies
+    default_strategy: "combined"  # uncertainty, balanced, combined, diversity
+
+    # Uncertainty sampling
+    uncertainty:
+      method: "least_confident"  # least_confident, margin, entropy
+      batch_size: 100
+
+    # Balanced sampling (prevent dataset imbalance)
+    balanced:
+      enabled: true
+      minority_class_boost: 2.0  # Boost factor for minority classes
+      target_balance: "equal"    # equal or custom ratios
+
+    # Combined sampling weights
+    combined:
+      uncertainty_weight: 0.5
+      balance_weight: 0.5
+
+    # Diversity sampling
+    diversity:
+      method: "kmeans"  # kmeans, random, max_distance
+
+    # Active learning iteration settings
+    iterations:
+      max_iterations: 10
+      min_samples_per_iteration: 50
+      max_samples_per_iteration: 500
+      stopping_criterion: "performance_plateau"  # performance_plateau, max_iterations
+
+  # ============================================================
+  # 3️⃣ DISAGREEMENT DETECTION & RESOLUTION
+  # ============================================================
+  disagreement:
+    enabled: true
+
+    # Detection settings
+    detection:
+      enable_confidence_tracking: true
+      high_confidence_threshold: 0.8  # Flag high-confidence mismatches
+
+    # Re-labeling queue
+    relabeling:
+      auto_create_tasks: true
+      priority: "high_confidence"  # high_confidence, all_unreviewed, ambiguous
+      max_queue_size: 100
+      require_multiple_annotators: true  # For re-labeling
+
+    # Review sampling
+    sampling:
+      default_strategy: "high_confidence"  # random, high_confidence, diverse
+      review_batch_size: 20
+
+  # ============================================================
+  # 4️⃣ ANNOTATOR MANAGEMENT
+  # ============================================================
+  annotator_management:
+    # Registration
+    require_registration: true
+    require_qualification: true
+
+    # Expertise levels
+    expertise_levels:
+      - junior
+      - intermediate
+      - senior
+      - expert
+
+    # Performance tracking
+    tracking:
+      track_speed: true
+      track_accuracy: true
+      track_quality_over_time: true
+      min_annotations_for_assessment: 20
+
+    # Task assignment
+    assignment:
+      strategy: "balanced"  # balanced, expertise, speed
+      max_active_tasks_per_annotator: 5
+      prefer_specialists: true  # Prefer annotators with domain specialization
+
+    # Qualification tests
+    qualification:
+      require_test: true
+      test_sample_size: 50
+      requalification_interval_days: 90  # Re-test every 3 months
+
+    # Performance dashboards
+    dashboards:
+      enable_annotator_dashboard: true
+      show_progress: true
+      show_quality_metrics: true
+      show_leaderboard: false  # Optional: gamification
+
+  # ============================================================
+  # 5️⃣ WORKFLOW AUTOMATION
+  # ============================================================
+  workflow:
+    # Automatic workflow stages
+    automation:
+      auto_assign_tasks: true
+      auto_create_batches: true
+      auto_review_threshold: 0.95  # Auto-approve if agreement >= 95%
+
+    # Task prioritization
+    prioritization:
+      enabled: true
+      priority_levels:
+        - critical
+        - high
+        - normal
+        - low
+      default_priority: "normal"
+
+    # Batch settings
+    batches:
+      default_batch_size: 100
+      max_batch_size: 500
+      group_by_similarity: true  # Group similar samples
+
+    # Review workflow
+    review:
+      require_review: true
+      reviewer_role: "senior"  # junior, intermediate, senior, expert
+      enable_adjudication: true  # For disagreements
+
+    # Notifications
+    notifications:
+      enable: true
+      notify_on_task_assignment: true
+      notify_on_review_needed: true
+      notify_on_batch_completion: true
+
+  # ============================================================
+  # 6️⃣ FEEDBACK & LEARNING
+  # ============================================================
+  feedback:
+    # Collection
+    collection:
+      enable_feedback: true
+      storage_path: "data/feedback"
+      format: "jsonl"
+
+    # Types of feedback to collect
+    collect:
+      approval_rejection: true
+      corrections: true
+      ratings: true
+      comments: true
+      suggestions: true
+
+    # Learning from feedback
+    learning:
+      enable_learning: true
+      min_feedback_for_learning: 10
+      pattern_detection: true
+      recommendation_generation: true
+
+    # Feedback analysis
+    analysis:
+      calculate_approval_rate: true
+      identify_problem_areas: true
+      track_improvement_over_time: true
+
+  # ============================================================
+  # 7️⃣ LABELING INTERFACE SETTINGS
+  # ============================================================
+  interface:
+    # UI preferences (for Streamlit or other interfaces)
+    ui:
+      show_confidence_scores: true
+      show_similar_examples: true
+      enable_comments: true
+      enable_skip: true
+
+    # Ontology settings
+    ontology:
+      enforce_ontology: true
+      allow_corrections: true
+      share_across_projects: true
+
+    # Context provision
+    context:
+      show_full_context: true  # Show complete documents/images
+      show_related_samples: true
+      max_related_samples: 5
+
+  # ============================================================
+  # 8️⃣ QUALITY ASSURANCE
+  # ============================================================
+  quality_assurance:
+    # Validation rules
+    validation:
+      require_non_empty: true
+      check_format_consistency: true
+      validate_against_ontology: true
+
+    # Audit trail
+    audit:
+      enable_audit_trail: true
+      track_all_changes: true
+      store_history: true
+      retention_days: 365
+
+    # Metrics tracking
+    metrics:
+      track_dq_score: true
+      track_annotation_speed: true
+      track_inter_annotator_agreement: true
+      calculate_fleiss_kappa: true  # For multiple annotators
+
+  # ============================================================
+  # 9️⃣ INTEGRATION SETTINGS
+  # ============================================================
+  integration:
+    # External labeling platforms
+    platforms:
+      enable_external_platforms: false
+      # Supported: roboflow, encord, labelbox, prodigy, snorkel
+      default_platform: null
+
+    # API settings
+    api:
+      enable_api: true
+      api_key_required: false
+      rate_limiting: true
+      max_requests_per_minute: 60
+
+    # Export settings
+    export:
+      default_format: "csv"  # csv, json, parquet
+      include_metadata: true
+      include_confidence_scores: true
+
+  # ============================================================
+  # 🔟 ADVANCED SETTINGS
+  # ============================================================
+  advanced:
+    # Model-in-the-loop
+    model_in_loop:
+      enable_ai_assisted_labeling: true
+      pre_label_with_model: true
+      suggest_corrections: true
+      confidence_threshold_for_suggestions: 0.7
+
+    # Explainability
+    explainability:
+      provide_explanations: true
+      show_model_reasoning: true
+      highlight_important_features: true
+
+    # Privacy
+    privacy:
+      anonymize_annotator_data: false
+      encrypt_sensitive_data: true
+      gdpr_compliant: true
+
+# ============================================================
+# Default Configuration Values
+# ============================================================
+defaults:
+  batch_size: 100
+  min_accuracy: 0.90
+  min_kappa: 0.80
+  auto_approve_threshold: 0.95
+  max_active_tasks: 5
+  uncertainty_strategy: "least_confident"
+  assignment_strategy: "balanced"
+
+# ============================================================
+# End of HITL Configuration
+# ============================================================
